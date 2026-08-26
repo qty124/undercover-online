@@ -251,6 +251,30 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
 }
 .card.mine .card-back .label { color: #ffe070; }
 
+/* ===== 退出房间按钮 (在顶部栏) ===== */
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.btn-leave {
+  cursor: pointer;
+  border: 1px solid rgba(255, 120, 140, 0.4);
+  background: rgba(220, 38, 38, 0.18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #ff9aa8;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  transition: background .2s, transform .15s, color .2s;
+  font-family: inherit;
+}
+.btn-leave:hover {
+  background: rgba(220, 38, 38, 0.4);
+  color: #fff;
+  transform: translateY(-1px);
+}
+.btn-leave:active { transform: translateY(0); }
+
 /* ===== 状态文字 ===== */
 .status {
   max-width: 880px;
@@ -378,7 +402,10 @@ footer {
   <div id="gameScreen" class="screen hidden">
     <div class="topbar">
       <span class="room-info">🏠 房间 <span id="roomDisplay">----</span></span>
-      <span class="player-info">玩家 <span id="myPlayerDisplay">?</span></span>
+      <div class="topbar-right">
+        <span class="player-info">玩家 <span id="myPlayerDisplay">?</span></span>
+        <button id="leaveBtn" class="btn-leave" title="退出房间">🚪 退出</button>
+      </div>
     </div>
 
     <div class="cards" id="cards"></div>
@@ -479,6 +506,7 @@ footer {
   const $guessInput    = document.getElementById("guessInput");
   const $guessBtn      = document.getElementById("guessBtn");
   const $resetBtn      = document.getElementById("resetBtn");
+  const $leaveBtn      = document.getElementById("leaveBtn");
   const $overlay       = document.getElementById("overlay");
   const $modal         = document.getElementById("modal");
   const $modalEmoji    = document.getElementById("modalEmoji");
@@ -781,6 +809,59 @@ footer {
     $overlay.classList.add("hidden");
   }
 
+  /**
+   * 退出房间
+   * - 释放自己的玩家槽位 (others 仍可继续游戏)
+   * - 如果所有人都走了, 直接删除整个房间, 避免 DB 堆积
+   * - 清空本地状态 (localStorage + 全局变量)
+   * - 切换回加入房间界面
+   */
+  async function leaveRoom() {
+    if (!currentRoomId || myPlayerIndex === null) {
+      // 已经在加入界面, 仅重置 UI
+      $gameScreen.classList.add("hidden");
+      $joinScreen.classList.remove("hidden");
+      $roomInput.value = "";
+      $joinBtn.disabled = false;
+      $joinBtn.textContent = "🚀 加入 / 创建房间";
+      return;
+    }
+
+    // 1. 先解绑监听器, 避免处理自己的更新
+    db.ref(`rooms/${currentRoomId}`).off("value");
+
+    // 2. 释放槽位 (失败也不影响退出流程)
+    try {
+      const players = (roomData && roomData.players) ? [...roomData.players] : [false, false, false];
+      if (myPlayerIndex >= 0 && myPlayerIndex < 3) {
+        players[myPlayerIndex] = false;
+        if (players.every(p => !p)) {
+          // 最后一个走的玩家, 顺手删除房间, 避免 DB 堆积
+          await db.ref(`rooms/${currentRoomId}`).remove();
+        } else {
+          await db.ref(`rooms/${currentRoomId}/players`).set(players);
+        }
+      }
+    } catch (e) {
+      // ignore network errors, continue with leaving
+    }
+
+    // 3. 清空本地状态
+    localStorage.removeItem("uc_room");
+    localStorage.removeItem("uc_player");
+    currentRoomId = null;
+    myPlayerIndex = null;
+    roomData = null;
+
+    // 4. 切换回加入房间界面
+    $overlay.classList.add("hidden");
+    $gameScreen.classList.add("hidden");
+    $joinScreen.classList.remove("hidden");
+    $roomInput.value = "";
+    $joinBtn.disabled = false;
+    $joinBtn.textContent = "🚀 加入 / 创建房间";
+  }
+
   // ============================================================
   // 工具函数
   // ============================================================
@@ -799,6 +880,9 @@ footer {
   $guessBtn.addEventListener("click", spyGuess);
   $guessInput.addEventListener("keydown", e => { if (e.key === "Enter") spyGuess(); });
   $resetBtn.addEventListener("click", resetGame);
+  $leaveBtn.addEventListener("click", () => {
+    if (confirm("确定要退出当前房间吗？")) leaveRoom();
+  });
 
   // 弹窗内的"再来一局"按钮
   $modalResetBtn.addEventListener("click", resetGame);
