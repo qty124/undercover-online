@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#0b0710" />
+<title>🕵️ 卧底风云 · 三人联机版</title>
+
+<!--
+  ============================================================
+  🕵️ 卧底风云 · 三人联机版 (Firebase Realtime Database)
+  ============================================================
+
+  📦 部署步骤：
+    1. 访问 https://console.firebase.google.com/ 创建项目
+    2. 在项目里创建 Realtime Database（创建时选择"测试模式"开启读写）
+    3. 项目设置 → 你的应用 → 添加 Web 应用 → 复制 firebaseConfig
+    4. 把下方 firebaseConfig 替换成你的真实配置
+    5. 上传到 GitHub Pages / Netlify / Vercel / 任何静态托管
+
+  🔓 测试模式安全规则（生产环境请加强）：
+    {
+      "rules": {
+        ".read": true,
+        ".write": true
+      }
+    }
+
+  🎯 玩法：
+    - 三人输入相同房间号加入房间（第 4 个人会被拒绝）
+    - 第一位进入的玩家自动创建房间并随机分配词语和间谍
+    - 任意玩家点击任意卡牌 → 翻牌状态会实时同步给所有人
+    - 投票抓间谍 或 间谍盲猜词语 → 同步出胜负
+    - "再来一局" 重置当前房间（保留玩家位置）
+
+  ============================================================
+-->
+
+<style>
+/* ===== 基础重置 ===== */
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  color: #f0f0ff;
+  background: radial-gradient(ellipse at top, #1a1025 0%, #0b0710 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* 背景装饰光斑 */
+body::before, body::after {
+  content: "";
+  position: fixed;
+  width: 50vmax; height: 50vmax;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: .35;
+  pointer-events: none;
+  z-index: 0;
+}
+body::before { background: #6a3ec9; top: -15vmax; left: -15vmax; }
+body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
+
+.hidden { display: none !important; }
+.screen { position: relative; z-index: 1; min-height: 100vh; padding: 20px 16px; }
+
+/* ===== 加入房间界面 ===== */
+.join-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.join-card {
+  width: 100%;
+  max-width: 420px;
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 24px;
+  padding: 36px 28px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 40px rgba(160,120,255,0.3);
+}
+.join-card h1 {
+  font-size: clamp(32px, 7vw, 48px);
+  letter-spacing: 2px;
+  margin-bottom: 6px;
+  text-shadow: 0 0 24px rgba(160, 120, 255, 0.7);
+}
+.join-card .subtitle {
+  font-size: 14px;
+  color: #b6b6d8;
+  letter-spacing: 1px;
+  margin-bottom: 28px;
+}
+.join-card input {
+  width: 100%;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.18);
+  color: #fff;
+  padding: 14px 18px;
+  border-radius: 999px;
+  font-size: 18px;
+  text-align: center;
+  letter-spacing: 2px;
+  outline: none;
+  transition: border-color .2s, box-shadow .2s;
+  margin-bottom: 14px;
+}
+.join-card input:focus {
+  border-color: rgba(160,120,255,0.7);
+  box-shadow: 0 0 0 3px rgba(160,120,255,0.18);
+}
+.join-card .error {
+  margin-top: 14px;
+  color: #ff8888;
+  font-size: 14px;
+  min-height: 18px;
+}
+
+/* ===== 按钮 ===== */
+.btn {
+  cursor: pointer;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #f0f0ff;
+  padding: 12px 22px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  transition: transform .15s ease, box-shadow .25s ease, background .25s ease;
+  box-shadow: 0 0 14px rgba(120, 100, 220, 0.25);
+  font-family: inherit;
+}
+.btn:hover:not(:disabled) { transform: translateY(-1px); background: rgba(255,255,255,0.12); }
+.btn:active:not(:disabled) { transform: translateY(0); }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+.btn.primary {
+  background: linear-gradient(135deg, #4c1d95, #6d28d9);
+  border-color: transparent;
+  width: 100%;
+  padding: 14px;
+  font-size: 17px;
+  box-shadow: 0 0 22px rgba(120, 80, 220, 0.55);
+}
+.btn.orange { background: linear-gradient(135deg, #b45309, #f59e0b); border-color: transparent; }
+.btn.reset { background: linear-gradient(135deg, #1ec97e, #1e6dc9); border-color: transparent; }
+
+/* ===== 顶部栏 ===== */
+.topbar {
+  max-width: 880px;
+  margin: 0 auto 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 16px;
+  padding: 12px 18px;
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+.topbar .room-info { color: #b6b6d8; }
+.topbar .player-info {
+  color: #ffe070;
+  font-weight: 700;
+  text-shadow: 0 0 12px rgba(255, 220, 100, 0.5);
+}
+
+/* ===== 卡牌 ===== */
+.cards {
+  max-width: 880px;
+  margin: 0 auto 18px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+@media (max-width: 480px) { .cards { gap: 8px; } }
+.card {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  min-height: 180px;
+  perspective: 1000px;
+  cursor: pointer;
+}
+.card-inner {
+  position: absolute; inset: 0;
+  transform-style: preserve-3d;
+  transition: transform .7s cubic-bezier(.4,.0,.2,1);
+  border-radius: 16px;
+}
+.card.flipped .card-inner { transform: rotateY(180deg); }
+.card-face {
+  position: absolute; inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  border-radius: 16px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 12px;
+  text-align: center;
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.18);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4), inset 0 0 24px rgba(255,255,255,0.05);
+}
+.card-back {
+  background: linear-gradient(135deg, rgba(120,80,220,0.18), rgba(30,109,201,0.18));
+}
+.card-back .emoji { font-size: clamp(34px, 8vw, 56px); margin-bottom: 6px; }
+.card-back .label { font-size: clamp(13px, 3.2vw, 17px); color: #d0d0ff; letter-spacing: 1px; }
+.card-back .hint  { font-size: 11px; color: #9999c8; margin-top: 4px; }
+
+.card-front { transform: rotateY(180deg); color: #fff; font-weight: 700; }
+.card-front.civilian { background: rgba(37, 99, 235, 0.85); border-color: rgba(100,180,255,0.5); }
+.card-front.spy { background: rgba(220, 38, 38, 0.85); border-color: rgba(255,120,140,0.5); }
+
+.card-front .role-tag {
+  font-size: 13px; padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.25);
+  margin-bottom: 10px;
+  letter-spacing: 1px;
+}
+.card-front .word {
+  font-size: clamp(18px, 5vw, 28px);
+  word-break: break-all;
+  line-height: 1.3;
+}
+.card-front .spy-icon { font-size: clamp(40px, 9vw, 60px); margin-bottom: 8px; }
+.card-front .spy-text { font-size: clamp(13px, 3.4vw, 16px); }
+
+/* 已翻开 + 玩家自己的卡牌加亮提示 */
+.card.mine .card-back { border-color: rgba(255, 224, 112, 0.55); }
+.card.mine .card-back .label { color: #ffe070; }
+
+/* ===== 状态文字 ===== */
+.status {
+  max-width: 880px;
+  margin: 0 auto 14px;
+  text-align: center;
+  color: #b6b6d8;
+  font-size: 14px;
+  letter-spacing: 1px;
+  min-height: 20px;
+}
+
+/* ===== 操作区 ===== */
+.actions {
+  max-width: 880px;
+  margin: 0 auto 16px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 640px) { .actions { grid-template-columns: 1fr; } }
+.panel {
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 18px;
+  padding: 16px;
+}
+.panel h2 { color: #d8d8ff; font-size: 15px; margin-bottom: 12px; letter-spacing: 1px; }
+.vote-row { display: flex; gap: 8px; }
+.vote-row .btn { flex: 1; padding: 10px 0; font-size: 13px; }
+.guess-row { display: flex; gap: 8px; }
+.guess-row input {
+  flex: 1; min-width: 0;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.18);
+  color: #fff;
+  padding: 11px 14px;
+  border-radius: 999px;
+  font-size: 15px;
+  outline: none;
+  font-family: inherit;
+}
+.guess-row input:focus { border-color: rgba(160,120,255,0.7); box-shadow: 0 0 0 3px rgba(160,120,255,0.18); }
+
+/* ===== 重置按钮 ===== */
+.reset-area {
+  max-width: 880px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+/* ===== 结果弹窗 ===== */
+.overlay {
+  position: fixed; inset: 0;
+  background: rgba(5, 5, 20, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+  padding: 20px;
+  animation: fadeIn .3s ease;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.modal {
+  max-width: 380px; width: 100%;
+  background: linear-gradient(135deg, rgba(40,20,80,0.92), rgba(20,40,90,0.92));
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 22px;
+  padding: 28px 24px;
+  text-align: center;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.6), 0 0 40px rgba(160,120,255,0.5);
+  animation: pop .4s cubic-bezier(.2,.9,.3,1.2);
+}
+@keyframes pop { from { transform: scale(.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.modal .emoji { font-size: 56px; margin-bottom: 10px; }
+.modal h3 {
+  font-size: 24px; letter-spacing: 2px; margin-bottom: 8px;
+  text-shadow: 0 0 16px rgba(160,120,255,0.6);
+}
+.modal.civilian-win h3 { color: #6fc3ff; }
+.modal.spy-win h3 { color: #ff6f8c; }
+.modal p { color: #c8c8e8; font-size: 14px; line-height: 1.6; margin-bottom: 18px; }
+.modal .reveal {
+  background: rgba(0,0,0,0.35);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 18px;
+  font-size: 13px;
+  color: #d8d8ff;
+}
+.modal .reveal .word { color: #ffe070; font-weight: 700; font-size: 16px; }
+
+/* ===== 页脚 ===== */
+footer {
+  text-align: center;
+  margin-top: 24px;
+  color: #7a7a9c;
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+</style>
+</head>
+
+<body>
+  <!-- ========== 加入房间界面 ========== -->
+  <div id="joinScreen" class="screen join-screen">
+    <div class="join-card">
+      <h1>🕵️ 卧底风云</h1>
+      <p class="subtitle">三人联机 · 跨终端同步</p>
+      <input id="roomInput" type="text" inputmode="numeric"
+             placeholder="输入房间号 (如 8888)" maxlength="8" autocomplete="off" />
+      <button id="joinBtn" class="btn primary">🚀 加入 / 创建房间</button>
+      <p id="joinError" class="error"></p>
+    </div>
+  </div>
+
+  <!-- ========== 游戏界面 ========== -->
+  <div id="gameScreen" class="screen hidden">
+    <div class="topbar">
+      <span class="room-info">🏠 房间 <span id="roomDisplay">----</span></span>
+      <span class="player-info">玩家 <span id="myPlayerDisplay">?</span></span>
+    </div>
+
+    <div class="cards" id="cards"></div>
+    <div class="status" id="status">等待所有玩家加入…</div>
+
+    <div class="actions">
+      <div class="panel">
+        <h2>🗳️ 平民投票</h2>
+        <div class="vote-row">
+          <button class="btn" data-vote="0">投玩家 1</button>
+          <button class="btn" data-vote="1">投玩家 2</button>
+          <button class="btn" data-vote="2">投玩家 3</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>🕵️ 间谍猜词</h2>
+        <div class="guess-row">
+          <input type="text" id="guessInput" placeholder="间谍在此输入..." maxlength="20" autocomplete="off" />
+          <button id="guessBtn" class="btn orange">猜！</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="reset-area">
+      <button id="resetBtn" class="btn reset">🔄 再来一局</button>
+    </div>
+
+    <footer>👥 三人轮流点击卡牌 → 投票抓间谍 或 间谍盲猜词语</footer>
+  </div>
+
+  <!-- ========== 结果弹窗 ========== -->
+  <div id="overlay" class="overlay hidden">
+    <div id="modal" class="modal">
+      <div id="modalEmoji" class="emoji">🎉</div>
+      <h3 id="modalTitle">平民胜利！</h3>
+      <p id="modalDesc">你们成功揪出了间谍！</p>
+      <div class="reveal">
+        本局词语：<span class="word" id="modalWord">—</span><br/>
+        间谍是：<strong id="modalSpy">玩家 ?</strong>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase SDK (compat 版本, 保留 v8 namespaced API 写法) -->
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
+
+  <script>
+  // ============================================================
+  // ⚠️  Firebase 配置 - 请替换为你的 Firebase 项目配置
+  // ============================================================
+  //   1. 访问 https://console.firebase.google.com/ 创建项目
+  //   2. 项目 → Build → Realtime Database → Create Database → 测试模式
+  //   3. Project Settings → Your apps → Web app → 复制 firebaseConfig
+  //   4. 把下方占位符替换成你的真实配置
+  //   5. 测试模式安全规则 (Database → Rules):
+  //      {
+  //        "rules": { ".read": true, ".write": true }
+  //      }
+  // ============================================================
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT.firebaseapp.com",
+    databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+    projectId: "YOUR_PROJECT",
+    storageBucket: "YOUR_PROJECT.appspot.com",
+    appId: "YOUR_APP_ID"
+  };
+
+  // 初始化 Firebase
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  // ============================================================
+  // 词库（24 个常见词, 满足"至少 12 个"要求）
+  // ============================================================
+  const WORDS = [
+    "苹果","香蕉","太阳","月亮","电脑","书本",
+    "雨伞","眼镜","钢琴","蛋糕","熊猫","火车",
+    "橙子","葡萄","西瓜","兔子","手机","钥匙",
+    "毛巾","钱包","台灯","足球","吉他","咖啡"
+  ];
+
+  // ============================================================
+  // 全局状态
+  // ============================================================
+  let currentRoomId  = null;   // 当前房间号
+  let myPlayerIndex  = null;   // 0 / 1 / 2
+  let roomData       = null;   // 从 DB 拉取的最新房间数据
+  let roomListenerOff = null;  // Firebase listener 解绑函数
+
+  // ============================================================
+  // DOM 引用
+  // ============================================================
+  const $joinScreen  = document.getElementById("joinScreen");
+  const $gameScreen  = document.getElementById("gameScreen");
+  const $roomInput   = document.getElementById("roomInput");
+  const $joinBtn     = document.getElementById("joinBtn");
+  const $joinError   = document.getElementById("joinError");
+  const $roomDisplay = document.getElementById("roomDisplay");
+  const $myPlayer    = document.getElementById("myPlayerDisplay");
+  const $cards       = document.getElementById("cards");
+  const $status      = document.getElementById("status");
+  const $voteBtns    = document.querySelectorAll("[data-vote]");
+  const $guessInput  = document.getElementById("guessInput");
+  const $guessBtn    = document.getElementById("guessBtn");
+  const $resetBtn    = document.getElementById("resetBtn");
+  const $overlay     = document.getElementById("overlay");
+  const $modal       = document.getElementById("modal");
+  const $modalEmoji  = document.getElementById("modalEmoji");
+  const $modalTitle  = document.getElementById("modalTitle");
+  const $modalDesc   = document.getElementById("modalDesc");
+  const $modalWord   = document.getElementById("modalWord");
+  const $modalSpy    = document.getElementById("modalSpy");
+
+  // ============================================================
+  // 加入房间（核心逻辑）
+  // ============================================================
+  async function joinRoom() {
+    const raw = $roomInput.value.trim();
+    $joinError.textContent = "";
+    if (!raw) { $joinError.textContent = "请输入房间号"; return; }
+    if (!/^\d{1,8}$/.test(raw)) { $joinError.textContent = "房间号只能为数字 (1-8 位)"; return; }
+
+    $joinBtn.disabled = true;
+    $joinBtn.textContent = "⏳ 连接中...";
+
+    try {
+      await claimSlot(raw);
+    } catch (e) {
+      $joinError.textContent = e.message || "网络错误，请重试";
+      $joinBtn.disabled = false;
+      $joinBtn.textContent = "🚀 加入 / 创建房间";
+    }
+  }
+
+  /**
+   * 抢占一个玩家槽位（核心事务）
+   * - 房间不存在 → 我创建, 我是玩家 1, 随机生成 word/spyIndex
+   * - 房间存在且有空槽 → 抢占第一个空槽
+   * - 房间存在但已满 → 抛错 "房间已满"
+   */
+  async function claimSlot(roomId) {
+    const roomRef = db.ref(`rooms/${roomId}`);
+    const snap = await roomRef.once("value");
+    const data = snap.val();
+    let myIndex, updates;
+
+    if (!data) {
+      // 第一位玩家 → 创建房间并随机分配
+      myIndex = 0;
+      const word     = WORDS[Math.floor(Math.random() * WORDS.length)];
+      const spyIndex = Math.floor(Math.random() * 3);
+      updates = {
+        word,
+        spyIndex,
+        revealed: [false, false, false],
+        gameOver: false,
+        winner:   null,
+        players:  [true, false, false],
+        createdAt: firebase.database.ServerValue.TIMESTAMP
+      };
+    } else {
+      myIndex = data.players.findIndex(p => !p);
+      if (myIndex === -1) throw new Error("房间已满");
+      const players = [...data.players];
+      players[myIndex] = true;
+      updates = { players };
+    }
+
+    await roomRef.update(updates);
+
+    currentRoomId = roomId;
+    myPlayerIndex = myIndex;
+    localStorage.setItem("uc_room", roomId);
+    localStorage.setItem("uc_player", String(myIndex));
+    enterGame();
+  }
+
+  // ============================================================
+  // 重新加入（页面刷新后恢复会话）
+  // ============================================================
+  async function tryRejoin() {
+    const savedRoom   = localStorage.getItem("uc_room");
+    const savedPlayer = localStorage.getItem("uc_player");
+    if (!savedRoom || savedPlayer === null) return false;
+
+    try {
+      const snap = await db.ref(`rooms/${savedRoom}`).once("value");
+      const data = snap.val();
+      if (!data || !data.players || !data.players[parseInt(savedPlayer)]) {
+        localStorage.removeItem("uc_room");
+        localStorage.removeItem("uc_player");
+        return false;
+      }
+      currentRoomId = savedRoom;
+      myPlayerIndex = parseInt(savedPlayer);
+      enterGame();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function enterGame() {
+    $joinScreen.classList.add("hidden");
+    $gameScreen.classList.remove("hidden");
+    $roomDisplay.textContent = currentRoomId;
+    $myPlayer.textContent    = myPlayerIndex + 1;
+    listenRoom();
+  }
+
+  // ============================================================
+  // 实时监听房间数据 → 自动同步到所有设备
+  // ============================================================
+  function listenRoom() {
+    const roomRef = db.ref(`rooms/${currentRoomId}`);
+    roomRef.on("value", (snap) => {
+      roomData = snap.val();
+      if (roomData) render();
+    });
+    roomListenerOff = () => roomRef.off("value");
+  }
+
+  // ============================================================
+  // 渲染
+  // ============================================================
+  function render() {
+    renderCards();
+    renderStatus();
+    renderControls();
+    renderResult();
+  }
+
+  function renderCards() {
+    if (!roomData) return;
+    $cards.innerHTML = "";
+    // 游戏结束时强制翻开所有卡牌
+    const revealed = roomData.gameOver
+      ? [true, true, true]
+      : (roomData.revealed || [false, false, false]);
+
+    for (let i = 0; i < 3; i++) {
+      const flipped = revealed[i];
+      const isSpy   = (i === roomData.spyIndex);
+      const isMine  = (i === myPlayerIndex);
+
+      const card = document.createElement("div");
+      card.className = "card" + (flipped ? " flipped" : "") + (isMine ? " mine" : "");
+      card.dataset.idx = i;
+      card.innerHTML = `
+        <div class="card-inner">
+          <div class="card-face card-back">
+            <div class="emoji">🎴</div>
+            <div class="label">玩家 ${i + 1}${isMine ? " (你)" : ""}</div>
+            <div class="hint">${flipped ? "已翻开" : "点击翻开"}</div>
+          </div>
+          <div class="card-face card-front ${isSpy ? "spy" : "civilian"}">
+            ${isSpy
+              ? `<div class="spy-icon">🕵️</div>
+                 <div class="role-tag">间谍</div>
+                 <div class="spy-text">空纸条</div>`
+              : `<div class="role-tag">平民</div>
+                 <div class="word">${escapeHtml(roomData.word)}</div>`}
+          </div>
+        </div>
+      `;
+      card.addEventListener("click", () => onCardClick(i));
+      $cards.appendChild(card);
+    }
+  }
+
+  function renderStatus() {
+    if (!roomData) return;
+    const playersCount = (roomData.players || []).filter(p => p).length;
+
+    if (playersCount < 3 && !roomData.gameOver) {
+      $status.textContent = `⏳ 等待玩家加入…(${playersCount}/3)`;
+      $status.style.color = "#b6b6d8";
+      return;
+    }
+
+    if (roomData.gameOver) {
+      const cw = roomData.winner === "civilian";
+      $status.textContent = cw ? "🎉 平民胜利！" : "💀 间谍胜利！";
+      $status.style.color = cw ? "#6fc3ff" : "#ff6f8c";
+      return;
+    }
+
+    // 所有人都到了, 游戏进行中
+    const myRevealed = roomData.revealed[myPlayerIndex];
+    if (!myRevealed) {
+      $status.textContent = "👆 请点击自己的卡牌查看身份";
+    } else {
+      $status.textContent = "✅ 你已查看身份, 讨论或行动吧";
+    }
+    $status.style.color = "#b6b6d8";
+  }
+
+  function renderControls() {
+    if (!roomData) return;
+    const allIn = (roomData.players || []).filter(p => p).length === 3;
+    const canAct = !roomData.gameOver && allIn;
+
+    $voteBtns.forEach(b => b.disabled = !canAct);
+    $guessBtn.disabled  = !canAct;
+    $guessInput.disabled = !canAct;
+    $resetBtn.disabled  = false; // 任何时候都能重置
+  }
+
+  function renderResult() {
+    if (!roomData || !roomData.gameOver) {
+      $overlay.classList.add("hidden");
+      return;
+    }
+    const civilianWin = roomData.winner === "civilian";
+    $modal.className = "modal " + (civilianWin ? "civilian-win" : "spy-win");
+    $modalEmoji.textContent = civilianWin ? "🎉" : "💀";
+    $modalTitle.textContent = civilianWin ? "平民胜利！" : "间谍胜利！";
+    $modalDesc.textContent  = civilianWin
+      ? "你们成功揪出了间谍，词保住了！"
+      : "很遗憾，平民投错了人，间谍成功存活。";
+    $modalWord.textContent  = roomData.word;
+    $modalSpy.textContent   = "玩家 " + (roomData.spyIndex + 1);
+    $overlay.classList.remove("hidden");
+  }
+
+  // ============================================================
+  // 交互处理
+  // ============================================================
+  async function onCardClick(idx) {
+    if (!roomData || roomData.gameOver) return;
+    const revealed = [...(roomData.revealed || [false, false, false])];
+    if (revealed[idx]) return;       // 已翻开, 不重复处理
+    revealed[idx] = true;
+    await db.ref(`rooms/${currentRoomId}/revealed`).set(revealed);
+  }
+
+  async function vote(target) {
+    if (!roomData || roomData.gameOver) return;
+    const civilianWin = (target === roomData.spyIndex);
+    await db.ref(`rooms/${currentRoomId}`).update({
+      gameOver: true,
+      winner:   civilianWin ? "civilian" : "spy",
+      revealed: [true, true, true]
+    });
+  }
+
+  async function spyGuess() {
+    if (!roomData || roomData.gameOver) return;
+    const guess = $guessInput.value.trim();
+    if (!guess) { alert("请先输入猜测的词语～"); return; }
+    const spyWin = (guess === roomData.word);
+    await db.ref(`rooms/${currentRoomId}`).update({
+      gameOver: true,
+      winner:   spyWin ? "spy" : "civilian",
+      revealed: [true, true, true]
+    });
+  }
+
+  async function resetGame() {
+    if (!currentRoomId) return;
+    const word     = WORDS[Math.floor(Math.random() * WORDS.length)];
+    const spyIndex = Math.floor(Math.random() * 3);
+    await db.ref(`rooms/${currentRoomId}`).update({
+      word, spyIndex,
+      revealed: [false, false, false],
+      gameOver: false,
+      winner:   null
+      // players 数组保留, 房间成员不变
+    });
+    $guessInput.value = "";
+    $overlay.classList.add("hidden");
+  }
+
+  // ============================================================
+  // 工具函数
+  // ============================================================
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+  }
+
+  // ============================================================
+  // 事件绑定
+  // ============================================================
+  $joinBtn.addEventListener("click", joinRoom);
+  $roomInput.addEventListener("keydown", e => { if (e.key === "Enter") joinRoom(); });
+  $voteBtns.forEach(b => b.addEventListener("click", () => vote(parseInt(b.dataset.vote, 10))));
+  $guessBtn.addEventListener("click", spyGuess);
+  $guessInput.addEventListener("keydown", e => { if (e.key === "Enter") spyGuess(); });
+  $resetBtn.addEventListener("click", resetGame);
+
+  // ============================================================
+  // 页面加载
+  // ============================================================
+  window.addEventListener("DOMContentLoaded", () => {
+    tryRejoin();
+  });
+  </script>
+</body>
+</html>
