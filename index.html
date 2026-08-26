@@ -29,9 +29,9 @@
   🎯 玩法：
     - 三人输入相同房间号加入房间（第 4 个人会被拒绝）
     - 第一位进入的玩家自动创建房间并随机分配词语和间谍
-    - 任意玩家点击任意卡牌 → 翻牌状态会实时同步给所有人
-    - 投票抓间谍 或 间谍盲猜词语 → 同步出胜负
-    - "再来一局" 重置当前房间（保留玩家位置）
+    - **只有自己能翻自己的牌**，他人卡牌永远是"私密"状态
+    - 投票抓间谍 或 间谍盲猜词语 → 同步出胜负 → 弹出胜利面板
+    - 面板里点"再来一局"或任意空白处关闭 → 重置当前房间
 
   ============================================================
 -->
@@ -186,8 +186,9 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
   aspect-ratio: 2 / 3;
   min-height: 180px;
   perspective: 1000px;
-  cursor: pointer;
+  cursor: default;
 }
+.card.clickable { cursor: pointer; }
 .card-inner {
   position: absolute; inset: 0;
   transform-style: preserve-3d;
@@ -220,6 +221,12 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
 .card-front { transform: rotateY(180deg); color: #fff; font-weight: 700; }
 .card-front.civilian { background: rgba(37, 99, 235, 0.85); border-color: rgba(100,180,255,0.5); }
 .card-front.spy { background: rgba(220, 38, 38, 0.85); border-color: rgba(255,120,140,0.5); }
+.card-front.locked {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.18);
+  color: #8a8ab0;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
 
 .card-front .role-tag {
   font-size: 13px; padding: 4px 10px;
@@ -233,11 +240,15 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
   word-break: break-all;
   line-height: 1.3;
 }
+.card-front.locked .word { font-size: clamp(22px, 6vw, 34px); color: #6a6a8c; }
 .card-front .spy-icon { font-size: clamp(40px, 9vw, 60px); margin-bottom: 8px; }
 .card-front .spy-text { font-size: clamp(13px, 3.4vw, 16px); }
 
-/* 已翻开 + 玩家自己的卡牌加亮提示 */
-.card.mine .card-back { border-color: rgba(255, 224, 112, 0.55); }
+/* 自己卡牌的金色高亮 */
+.card.mine .card-back {
+  border-color: rgba(255, 224, 112, 0.55);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 18px rgba(255, 220, 100, 0.18), inset 0 0 24px rgba(255,255,255,0.05);
+}
 .card.mine .card-back .label { color: #ffe070; }
 
 /* ===== 状态文字 ===== */
@@ -322,16 +333,22 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
 }
 .modal.civilian-win h3 { color: #6fc3ff; }
 .modal.spy-win h3 { color: #ff6f8c; }
-.modal p { color: #c8c8e8; font-size: 14px; line-height: 1.6; margin-bottom: 18px; }
+.modal p { color: #c8c8e8; font-size: 14px; line-height: 1.6; margin-bottom: 14px; }
 .modal .reveal {
   background: rgba(0,0,0,0.35);
   border-radius: 12px;
   padding: 12px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
   font-size: 13px;
   color: #d8d8ff;
 }
 .modal .reveal .word { color: #ffe070; font-weight: 700; font-size: 16px; }
+.modal .modal-hint {
+  margin-top: 10px !important;
+  margin-bottom: 0 !important;
+  font-size: 12px !important;
+  color: #7a7a9c !important;
+}
 
 /* ===== 页脚 ===== */
 footer {
@@ -389,7 +406,7 @@ footer {
       <button id="resetBtn" class="btn reset">🔄 再来一局</button>
     </div>
 
-    <footer>👥 三人轮流点击卡牌 → 投票抓间谍 或 间谍盲猜词语</footer>
+    <footer>👥 三人轮流查看自己的身份 → 投票抓间谍 或 间谍盲猜词语</footer>
   </div>
 
   <!-- ========== 结果弹窗 ========== -->
@@ -402,6 +419,8 @@ footer {
         本局词语：<span class="word" id="modalWord">—</span><br/>
         间谍是：<strong id="modalSpy">玩家 ?</strong>
       </div>
+      <button id="modalResetBtn" class="btn reset" style="margin-top: 4px;">🔄 再来一局</button>
+      <p class="modal-hint">或点击弹窗外的空白处关闭</p>
     </div>
   </div>
 
@@ -413,17 +432,8 @@ footer {
   // ============================================================
   // ⚠️  Firebase 配置 - 请替换为你的 Firebase 项目配置
   // ============================================================
-  //   1. 访问 https://console.firebase.google.com/ 创建项目
-  //   2. 项目 → Build → Realtime Database → Create Database → 测试模式
-  //   3. Project Settings → Your apps → Web app → 复制 firebaseConfig
-  //   4. 把下方占位符替换成你的真实配置
-  //   5. 测试模式安全规则 (Database → Rules):
-  //      {
-  //        "rules": { ".read": true, ".write": true }
-  //      }
-  // ============================================================
   const firebaseConfig = {
-    apiKey: "AIzaSyBMCgkRAMi2ANOm7fto3rWeVR5Ygml8uwA",
+    apiKey: "AIzaSy…8uwA",
     authDomain: "planning-with-ai-32943.firebaseapp.com",
     databaseURL: "https://planning-with-ai-32943-default-rtdb.asia-southeast1.firebasedatabase.app",
     projectId: "planning-with-ai-32943",
@@ -452,34 +462,34 @@ footer {
   let currentRoomId  = null;   // 当前房间号
   let myPlayerIndex  = null;   // 0 / 1 / 2
   let roomData       = null;   // 从 DB 拉取的最新房间数据
-  let roomListenerOff = null;  // Firebase listener 解绑函数
 
   // ============================================================
   // DOM 引用
   // ============================================================
-  const $joinScreen  = document.getElementById("joinScreen");
-  const $gameScreen  = document.getElementById("gameScreen");
-  const $roomInput   = document.getElementById("roomInput");
-  const $joinBtn     = document.getElementById("joinBtn");
-  const $joinError   = document.getElementById("joinError");
-  const $roomDisplay = document.getElementById("roomDisplay");
-  const $myPlayer    = document.getElementById("myPlayerDisplay");
-  const $cards       = document.getElementById("cards");
-  const $status      = document.getElementById("status");
-  const $voteBtns    = document.querySelectorAll("[data-vote]");
-  const $guessInput  = document.getElementById("guessInput");
-  const $guessBtn    = document.getElementById("guessBtn");
-  const $resetBtn    = document.getElementById("resetBtn");
-  const $overlay     = document.getElementById("overlay");
-  const $modal       = document.getElementById("modal");
-  const $modalEmoji  = document.getElementById("modalEmoji");
-  const $modalTitle  = document.getElementById("modalTitle");
-  const $modalDesc   = document.getElementById("modalDesc");
-  const $modalWord   = document.getElementById("modalWord");
-  const $modalSpy    = document.getElementById("modalSpy");
+  const $joinScreen    = document.getElementById("joinScreen");
+  const $gameScreen    = document.getElementById("gameScreen");
+  const $roomInput     = document.getElementById("roomInput");
+  const $joinBtn       = document.getElementById("joinBtn");
+  const $joinError     = document.getElementById("joinError");
+  const $roomDisplay   = document.getElementById("roomDisplay");
+  const $myPlayer      = document.getElementById("myPlayerDisplay");
+  const $cards         = document.getElementById("cards");
+  const $status        = document.getElementById("status");
+  const $voteBtns      = document.querySelectorAll("[data-vote]");
+  const $guessInput    = document.getElementById("guessInput");
+  const $guessBtn      = document.getElementById("guessBtn");
+  const $resetBtn      = document.getElementById("resetBtn");
+  const $overlay       = document.getElementById("overlay");
+  const $modal         = document.getElementById("modal");
+  const $modalEmoji    = document.getElementById("modalEmoji");
+  const $modalTitle    = document.getElementById("modalTitle");
+  const $modalDesc     = document.getElementById("modalDesc");
+  const $modalWord     = document.getElementById("modalWord");
+  const $modalSpy      = document.getElementById("modalSpy");
+  const $modalResetBtn = document.getElementById("modalResetBtn");
 
   // ============================================================
-  // 加入房间（核心逻辑）
+  // 加入房间
   // ============================================================
   async function joinRoom() {
     const raw = $roomInput.value.trim();
@@ -499,12 +509,6 @@ footer {
     }
   }
 
-  /**
-   * 抢占一个玩家槽位（核心事务）
-   * - 房间不存在 → 我创建, 我是玩家 1, 随机生成 word/spyIndex
-   * - 房间存在且有空槽 → 抢占第一个空槽
-   * - 房间存在但已满 → 抛错 "房间已满"
-   */
   async function claimSlot(roomId) {
     const roomRef = db.ref(`rooms/${roomId}`);
     const snap = await roomRef.once("value");
@@ -543,7 +547,7 @@ footer {
   }
 
   // ============================================================
-  // 重新加入（页面刷新后恢复会话）
+  // 重新加入（页面刷新后恢复）
   // ============================================================
   async function tryRejoin() {
     const savedRoom   = localStorage.getItem("uc_room");
@@ -576,15 +580,13 @@ footer {
   }
 
   // ============================================================
-  // 实时监听房间数据 → 自动同步到所有设备
+  // 实时监听房间数据
   // ============================================================
   function listenRoom() {
-    const roomRef = db.ref(`rooms/${currentRoomId}`);
-    roomRef.on("value", (snap) => {
+    db.ref(`rooms/${currentRoomId}`).on("value", (snap) => {
       roomData = snap.val();
       if (roomData) render();
     });
-    roomListenerOff = () => roomRef.off("value");
   }
 
   // ============================================================
@@ -597,40 +599,80 @@ footer {
     renderResult();
   }
 
+  /**
+   * 渲染卡牌（隐私版）
+   * - 每张卡只有"自己翻开了"才能看到内容（游戏结束除外）
+   * - 其他人卡牌永远显示 🔒 ???（保护身份）
+   */
   function renderCards() {
     if (!roomData) return;
     $cards.innerHTML = "";
-    // 游戏结束时强制翻开所有卡牌
-    const revealed = roomData.gameOver
-      ? [true, true, true]
-      : (roomData.revealed || [false, false, false]);
+
+    const isGameOver = roomData.gameOver === true;
+    const revealed   = roomData.revealed || [false, false, false];
 
     for (let i = 0; i < 3; i++) {
-      const flipped = revealed[i];
-      const isSpy   = (i === roomData.spyIndex);
-      const isMine  = (i === myPlayerIndex);
+      const isMine    = (i === myPlayerIndex);
+      const iFlipped  = !!revealed[i];
+      const isSpy     = (i === roomData.spyIndex);
+
+      // 是否能在我的屏幕上看到这张卡的内容？
+      // - 游戏结束 → 所有人都能看到所有身份
+      // - 否则 → 只有这张卡的主人自己翻开后才能看到
+      const canSeeContent = isGameOver || (isMine && iFlipped);
 
       const card = document.createElement("div");
-      card.className = "card" + (flipped ? " flipped" : "") + (isMine ? " mine" : "");
+      card.className = "card" +
+                       (canSeeContent ? " flipped" : "") +
+                       (isMine ? " mine" : "") +
+                       // 只在自己的卡牌且未翻开时, 才允许点击
+                       ((isMine && !isGameOver && !iFlipped) ? " clickable" : "");
       card.dataset.idx = i;
+
+      // 正面内容
+      let frontCls, frontInner;
+      if (canSeeContent) {
+        frontCls = isSpy ? "spy" : "civilian";
+        frontInner = isSpy
+          ? `<div class="spy-icon">🕵️</div>
+             <div class="role-tag">间谍</div>
+             <div class="spy-text">空纸条</div>`
+          : `<div class="role-tag">平民</div>
+             <div class="word">${escapeHtml(roomData.word)}</div>`;
+      } else {
+        // 隐私状态：仅显示 🔒 + ???，不暴露身份
+        frontCls = "locked";
+        frontInner = `<div class="role-tag">🔒</div>
+                      <div class="word">???</div>`;
+      }
+
+      // 背面提示
+      let hint;
+      if (isGameOver) {
+        hint = canSeeContent ? "" : "已隐藏";
+      } else if (isMine) {
+        hint = iFlipped ? "已查阅 ✓" : "点击翻开";
+      } else {
+        hint = "私密";
+      }
+
       card.innerHTML = `
         <div class="card-inner">
           <div class="card-face card-back">
             <div class="emoji">🎴</div>
             <div class="label">玩家 ${i + 1}${isMine ? " (你)" : ""}</div>
-            <div class="hint">${flipped ? "已翻开" : "点击翻开"}</div>
+            <div class="hint">${hint}</div>
           </div>
-          <div class="card-face card-front ${isSpy ? "spy" : "civilian"}">
-            ${isSpy
-              ? `<div class="spy-icon">🕵️</div>
-                 <div class="role-tag">间谍</div>
-                 <div class="spy-text">空纸条</div>`
-              : `<div class="role-tag">平民</div>
-                 <div class="word">${escapeHtml(roomData.word)}</div>`}
+          <div class="card-face card-front ${frontCls}">
+            ${frontInner}
           </div>
         </div>
       `;
-      card.addEventListener("click", () => onCardClick(i));
+
+      // 只让自己能点击自己的卡牌（且未翻开、未结束）
+      if (isMine && !isGameOver && !iFlipped) {
+        card.addEventListener("click", () => onCardClick(i));
+      }
       $cards.appendChild(card);
     }
   }
@@ -652,8 +694,8 @@ footer {
       return;
     }
 
-    // 所有人都到了, 游戏进行中
-    const myRevealed = roomData.revealed[myPlayerIndex];
+    // 三人到齐, 游戏进行中
+    const myRevealed = (roomData.revealed || [])[myPlayerIndex];
     if (!myRevealed) {
       $status.textContent = "👆 请点击自己的卡牌查看身份";
     } else {
@@ -670,7 +712,7 @@ footer {
     $voteBtns.forEach(b => b.disabled = !canAct);
     $guessBtn.disabled  = !canAct;
     $guessInput.disabled = !canAct;
-    $resetBtn.disabled  = false; // 任何时候都能重置
+    $resetBtn.disabled  = false;
   }
 
   function renderResult() {
@@ -693,10 +735,13 @@ footer {
   // ============================================================
   // 交互处理
   // ============================================================
+
+  /** 翻牌：只能翻自己的牌 */
   async function onCardClick(idx) {
     if (!roomData || roomData.gameOver) return;
+    if (idx !== myPlayerIndex) return;        // 只能翻自己
     const revealed = [...(roomData.revealed || [false, false, false])];
-    if (revealed[idx]) return;       // 已翻开, 不重复处理
+    if (revealed[idx]) return;
     revealed[idx] = true;
     await db.ref(`rooms/${currentRoomId}/revealed`).set(revealed);
   }
@@ -706,8 +751,7 @@ footer {
     const civilianWin = (target === roomData.spyIndex);
     await db.ref(`rooms/${currentRoomId}`).update({
       gameOver: true,
-      winner:   civilianWin ? "civilian" : "spy",
-      revealed: [true, true, true]
+      winner:   civilianWin ? "civilian" : "spy"
     });
   }
 
@@ -718,8 +762,7 @@ footer {
     const spyWin = (guess === roomData.word);
     await db.ref(`rooms/${currentRoomId}`).update({
       gameOver: true,
-      winner:   spyWin ? "spy" : "civilian",
-      revealed: [true, true, true]
+      winner:   spyWin ? "spy" : "civilian"
     });
   }
 
@@ -732,7 +775,7 @@ footer {
       revealed: [false, false, false],
       gameOver: false,
       winner:   null
-      // players 数组保留, 房间成员不变
+      // players 数组保留
     });
     $guessInput.value = "";
     $overlay.classList.add("hidden");
@@ -756,6 +799,16 @@ footer {
   $guessBtn.addEventListener("click", spyGuess);
   $guessInput.addEventListener("keydown", e => { if (e.key === "Enter") spyGuess(); });
   $resetBtn.addEventListener("click", resetGame);
+
+  // 弹窗内的"再来一局"按钮
+  $modalResetBtn.addEventListener("click", resetGame);
+
+  // 点击弹窗背景关闭弹窗（但不重置游戏）
+  $overlay.addEventListener("click", (e) => {
+    if (e.target === $overlay) {
+      $overlay.classList.add("hidden");
+    }
+  });
 
   // ============================================================
   // 页面加载
