@@ -4,12 +4,11 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <meta name="theme-color" content="#0b0710" />
-<title>🕵️ 卧底风云 · 三人联机版</title>
+<title>🕵️ 卧底风云 · 多人联机版</title>
 
 <!--
   ============================================================
-  🕵️ 卧底风云 · 三人联机版 (Firebase Realtime Database)
-  ============================================================
+  🕵️ 卧底风云 · 多人联机版 (Firebase Realtime Database)
 
   📦 部署步骤：
     1. 访问 https://console.firebase.google.com/ 创建项目
@@ -27,11 +26,13 @@
     }
 
   🎯 玩法：
-    - 三人输入相同房间号加入房间（第 4 个人会被拒绝）
-    - 第一位进入的玩家自动创建房间并随机分配词语和间谍
-    - **只有自己能翻自己的牌**，他人卡牌永远是"私密"状态
-    - 投票抓间谍 或 间谍盲猜词语 → 同步出胜负 → 弹出胜利面板
-    - 面板里点"再来一局"或任意空白处关闭 → 重置当前房间
+    - 3-8 人输入相同房间号加入；每人输入自己的昵称
+    - 房主可点 "🚀 开始游戏"（满 3 人才能开始）
+    - 系统按在场人数分配卧底 (ceil(n/5) 个卧底)，平民剩余
+    - 每人点自己的卡牌查看身份 → 然后每人对嫌疑人投 1 票（可改投）
+    - 当得票最高的玩家，其票数 > 在场人数 / 2 时被票出 → 判定胜负
+    - 卧底可随时输入 "🕵️ 间谍猜词"（平民无此权限）→ 猜中即胜
+    - 永远只有自己的卡牌能翻开，他人卡牌对其他人都显示为 🔒 ???
 
   ============================================================
 -->
@@ -91,7 +92,7 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
   font-size: 14px;
   color: #b6b6d8;
   letter-spacing: 1px;
-  margin-bottom: 28px;
+  margin-bottom: 22px;
 }
 .join-card input {
   width: 100%;
@@ -105,11 +106,17 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
   letter-spacing: 2px;
   outline: none;
   transition: border-color .2s, box-shadow .2s;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 .join-card input:focus {
   border-color: rgba(160,120,255,0.7);
   box-shadow: 0 0 0 3px rgba(160,120,255,0.18);
+}
+.join-card .room-hint {
+  font-size: 12px;
+  color: #7a7a9c;
+  margin: -6px 4px 6px;
+  text-align: left;
 }
 .join-card .error {
   margin-top: 14px;
@@ -148,10 +155,12 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
 }
 .btn.orange { background: linear-gradient(135deg, #b45309, #f59e0b); border-color: transparent; }
 .btn.reset { background: linear-gradient(135deg, #1ec97e, #1e6dc9); border-color: transparent; }
+.btn.muted { background: rgba(120,80,220,0.15); border-color: rgba(160,120,255,0.35); }
+.btn.muted.my-vote { background: rgba(255,224,112,0.18); border-color: rgba(255,224,112,0.55); color: #ffe070; }
 
 /* ===== 顶部栏 ===== */
 .topbar {
-  max-width: 880px;
+  max-width: 1100px;
   margin: 0 auto 20px;
   display: flex;
   justify-content: space-between;
@@ -164,6 +173,8 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
   padding: 12px 18px;
   font-size: 14px;
   letter-spacing: 1px;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 .topbar .room-info { color: #b6b6d8; }
 .topbar .player-info {
@@ -174,17 +185,33 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
 
 /* ===== 卡牌 ===== */
 .cards {
-  max-width: 880px;
+  max-width: 1100px;
   margin: 0 auto 18px;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 10px;
 }
-@media (max-width: 480px) { .cards { gap: 8px; } }
+.cards.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.cards.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.cards.cols-5 { grid-template-columns: repeat(5, 1fr); }
+.cards.cols-6 { grid-template-columns: repeat(6, 1fr); }
+.cards.cols-7 { grid-template-columns: repeat(7, 1fr); }
+.cards.cols-8 { grid-template-columns: repeat(8, 1fr); }
+@media (max-width: 720px) {
+  .cards,
+  .cards.cols-3, .cards.cols-4, .cards.cols-5,
+  .cards.cols-6, .cards.cols-7, .cards.cols-8 { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 480px) {
+  .cards,
+  .cards.cols-3, .cards.cols-4, .cards.cols-5,
+  .cards.cols-6, .cards.cols-7, .cards.cols-8 { grid-template-columns: repeat(3, 1fr); }
+}
+
 .card {
   position: relative;
   aspect-ratio: 2 / 3;
-  min-height: 180px;
+  min-height: 150px;
   perspective: 1000px;
   cursor: default;
 }
@@ -203,7 +230,7 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
   border-radius: 16px;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  padding: 12px;
+  padding: 10px;
   text-align: center;
   background: rgba(255,255,255,0.05);
   backdrop-filter: blur(10px);
@@ -214,9 +241,9 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
 .card-back {
   background: linear-gradient(135deg, rgba(120,80,220,0.18), rgba(30,109,201,0.18));
 }
-.card-back .emoji { font-size: clamp(34px, 8vw, 56px); margin-bottom: 6px; }
-.card-back .label { font-size: clamp(13px, 3.2vw, 17px); color: #d0d0ff; letter-spacing: 1px; }
-.card-back .hint  { font-size: 11px; color: #9999c8; margin-top: 4px; }
+.card-back .emoji { font-size: clamp(30px, 6vw, 50px); margin-bottom: 4px; }
+.card-back .label { font-size: clamp(12px, 2.6vw, 15px); color: #d0d0ff; letter-spacing: 1px; word-break: break-all; }
+.card-back .hint  { font-size: 10px; color: #9999c8; margin-top: 4px; }
 
 .card-front { transform: rotateY(180deg); color: #fff; font-weight: 700; }
 .card-front.civilian { background: rgba(37, 99, 235, 0.85); border-color: rgba(100,180,255,0.5); }
@@ -227,22 +254,35 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
   color: #8a8ab0;
   box-shadow: 0 8px 32px rgba(0,0,0,0.4);
 }
+.card-front.eliminated {
+  background: rgba(120,120,140,0.35);
+  border-color: rgba(255,80,80,0.55);
+  color: #ffcfcf;
+}
 
 .card-front .role-tag {
-  font-size: 13px; padding: 4px 10px;
+  font-size: 12px; padding: 4px 10px;
   border-radius: 999px;
   background: rgba(0,0,0,0.25);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   letter-spacing: 1px;
 }
 .card-front .word {
-  font-size: clamp(18px, 5vw, 28px);
+  font-size: clamp(15px, 3.5vw, 22px);
   word-break: break-all;
-  line-height: 1.3;
+  line-height: 1.25;
 }
-.card-front.locked .word { font-size: clamp(22px, 6vw, 34px); color: #6a6a8c; }
-.card-front .spy-icon { font-size: clamp(40px, 9vw, 60px); margin-bottom: 8px; }
-.card-front .spy-text { font-size: clamp(13px, 3.4vw, 16px); }
+.card-front.locked .word { font-size: clamp(20px, 5vw, 30px); color: #6a6a8c; }
+.card-front .spy-icon { font-size: clamp(34px, 7vw, 50px); margin-bottom: 6px; }
+.card-front .spy-text { font-size: clamp(12px, 2.8vw, 14px); }
+.card-front .eliminated-tag {
+  font-size: 11px; padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(220,38,38,0.4);
+  border: 1px solid rgba(255,80,80,0.6);
+  margin-top: 8px;
+  letter-spacing: 1px;
+}
 
 /* 自己卡牌的金色高亮 */
 .card.mine .card-back {
@@ -251,8 +291,24 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
 }
 .card.mine .card-back .label { color: #ffe070; }
 
+/* 票数小徽章 */
+.card .vote-badge {
+  position: absolute;
+  top: 8px; right: 8px;
+  min-width: 28px; height: 28px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f59e0b, #b45309);
+  color: #fff;
+  font-weight: 800;
+  font-size: 13px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 12px rgba(245,158,11,0.6);
+  z-index: 4;
+}
+
 /* ===== 退出房间按钮 (在顶部栏) ===== */
-.topbar-right { display: flex; align-items: center; gap: 12px; }
+.topbar-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .btn-leave {
   cursor: pointer;
   border: 1px solid rgba(255, 120, 140, 0.4);
@@ -277,24 +333,44 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
 
 /* ===== 状态文字 ===== */
 .status {
-  max-width: 880px;
+  max-width: 1100px;
   margin: 0 auto 14px;
   text-align: center;
   color: #b6b6d8;
   font-size: 14px;
   letter-spacing: 1px;
-  min-height: 20px;
+  min-height: 22px;
 }
+
+/* ===== 玩家列表（大厅） ===== */
+.lobby-list {
+  max-width: 600px;
+  margin: 0 auto 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+}
+.lobby-tile {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 14px;
+  padding: 14px 8px;
+  text-align: center;
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+.lobby-tile.mine { border-color: rgba(255,224,112,0.55); color: #ffe070; }
+.lobby-tile.empty { color: #5a5a7c; background: rgba(255,255,255,0.02); border-style: dashed; }
 
 /* ===== 操作区 ===== */
 .actions {
-  max-width: 880px;
+  max-width: 1100px;
   margin: 0 auto 16px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1.2fr 1fr;
   gap: 14px;
 }
-@media (max-width: 640px) { .actions { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .actions { grid-template-columns: 1fr; } }
 .panel {
   background: rgba(255,255,255,0.05);
   backdrop-filter: blur(14px);
@@ -303,9 +379,19 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
   border-radius: 18px;
   padding: 16px;
 }
-.panel h2 { color: #d8d8ff; font-size: 15px; margin-bottom: 12px; letter-spacing: 1px; }
-.vote-row { display: flex; gap: 8px; }
-.vote-row .btn { flex: 1; padding: 10px 0; font-size: 13px; }
+.panel h2 { color: #d8d8ff; font-size: 15px; margin-bottom: 10px; letter-spacing: 1px; }
+.panel-hint {
+  font-size: 12px; color: #9999c8;
+  margin-top: 10px; line-height: 1.5;
+}
+
+.vote-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+}
+.vote-row .btn { padding: 9px 6px; font-size: 13px; }
+
 .guess-row { display: flex; gap: 8px; }
 .guess-row input {
   flex: 1; min-width: 0;
@@ -319,12 +405,23 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
   font-family: inherit;
 }
 .guess-row input:focus { border-color: rgba(160,120,255,0.7); box-shadow: 0 0 0 3px rgba(160,120,255,0.18); }
+.guess-locked {
+  text-align: center;
+  padding: 28px 14px;
+  color: #7a7a9c;
+  font-size: 13px;
+  line-height: 1.6;
+  background: rgba(0,0,0,0.18);
+  border-radius: 14px;
+  border: 1px dashed rgba(255,255,255,0.08);
+}
 
 /* ===== 重置按钮 ===== */
 .reset-area {
-  max-width: 880px;
+  max-width: 1100px;
   margin: 0 auto;
   text-align: center;
+  display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
 }
 
 /* ===== 结果弹窗 ===== */
@@ -340,7 +437,7 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .modal {
-  max-width: 380px; width: 100%;
+  max-width: 400px; width: 100%;
   background: linear-gradient(135deg, rgba(40,20,80,0.92), rgba(20,40,90,0.92));
   border: 1px solid rgba(255,255,255,0.18);
   border-radius: 22px;
@@ -365,8 +462,12 @@ body::after  { background: #1e6dc9; bottom: -15vmax; right: -15vmax; }
   margin-bottom: 16px;
   font-size: 13px;
   color: #d8d8ff;
+  text-align: left;
+  line-height: 1.7;
 }
 .modal .reveal .word { color: #ffe070; font-weight: 700; font-size: 16px; }
+.modal .reveal .spy-name { color: #ff9aa8; font-weight: 700; }
+.modal .reveal .civilian-name { color: #93c5fd; font-weight: 700; }
 .modal .modal-hint {
   margin-top: 10px !important;
   margin-bottom: 0 !important;
@@ -382,6 +483,13 @@ footer {
   font-size: 12px;
   letter-spacing: 1px;
 }
+
+/* ===== 房间内昵称/槽位预览 ===== */
+.slot-summary {
+  font-size: 12px; color: #9999c8;
+  text-align: center; margin-top: 4px;
+  letter-spacing: 1px;
+}
 </style>
 </head>
 
@@ -390,9 +498,11 @@ footer {
   <div id="joinScreen" class="screen join-screen">
     <div class="join-card">
       <h1>🕵️ 卧底风云</h1>
-      <p class="subtitle">三人联机 · 跨终端同步</p>
+      <p class="subtitle">多人联机 · 跨终端同步</p>
+      <input id="nameInput" type="text" maxlength="8" placeholder="你的昵称 (≤8字)" autocomplete="off" />
       <input id="roomInput" type="text" inputmode="numeric"
-             placeholder="输入房间号 (如 8888)" maxlength="8" autocomplete="off" />
+             placeholder="房间号 (1-8 位数字)" maxlength="8" autocomplete="off" />
+      <p class="room-hint">3 人即可开局，最多 8 人。先到的玩家成为房主可开局。</p>
       <button id="joinBtn" class="btn primary">🚀 加入 / 创建房间</button>
       <p id="joinError" class="error"></p>
     </div>
@@ -401,39 +511,46 @@ footer {
   <!-- ========== 游戏界面 ========== -->
   <div id="gameScreen" class="screen hidden">
     <div class="topbar">
-      <span class="room-info">🏠 房间 <span id="roomDisplay">----</span></span>
+      <span class="room-info">🏠 房间 <span id="roomDisplay">----</span> · <span id="countDisplay">0/3</span></span>
       <div class="topbar-right">
         <span class="player-info">玩家 <span id="myPlayerDisplay">?</span></span>
+        <button id="startBtn" class="btn orange" disabled>🚀 开始游戏</button>
         <button id="leaveBtn" class="btn-leave" title="退出房间">🚪 退出</button>
       </div>
     </div>
 
-    <div class="cards" id="cards"></div>
-    <div class="status" id="status">等待所有玩家加入…</div>
-
-    <div class="actions">
-      <div class="panel">
-        <h2>🗳️ 平民投票</h2>
-        <div class="vote-row">
-          <button class="btn" data-vote="0">投玩家 1</button>
-          <button class="btn" data-vote="1">投玩家 2</button>
-          <button class="btn" data-vote="2">投玩家 3</button>
-        </div>
-      </div>
-      <div class="panel">
-        <h2>🕵️ 间谍猜词</h2>
-        <div class="guess-row">
-          <input type="text" id="guessInput" placeholder="间谍在此输入..." maxlength="20" autocomplete="off" />
-          <button id="guessBtn" class="btn orange">猜！</button>
-        </div>
+    <div id="lobbySection" class="hidden">
+      <div class="lobby-list" id="lobbyList"></div>
+      <p class="status" id="lobbyStatus">⌛ 等待玩家加入...</p>
+      <div class="reset-area">
+        <button id="startBtn2" class="btn primary" style="max-width: 320px;">🚀 满 3 人开始游戏</button>
       </div>
     </div>
 
-    <div class="reset-area">
-      <button id="resetBtn" class="btn reset">🔄 再来一局</button>
-    </div>
+    <div id="playSection" class="hidden">
+      <div class="cards" id="cards"></div>
+      <p class="status" id="status">准备中...</p>
 
-    <footer>👥 三人轮流查看自己的身份 → 投票抓间谍 或 间谍盲猜词语</footer>
+      <div class="actions">
+        <div class="panel">
+          <h2>🗳️ 投票出卧底 <span id="voteMeta" class="slot-summary"></span></h2>
+          <div class="vote-row" id="voteRow"></div>
+          <p class="panel-hint">每人 1 票，可改投。得票数 <strong>超过</strong>在场人数一半的玩家会被票出并判定胜负。</p>
+        </div>
+        <div class="panel">
+          <h2>🕵️ 间谍猜词</h2>
+          <div id="guessArea"><!-- JS 渲染：卧底才能猜 / 平民看到 locked --></div>
+          <p class="panel-hint">只有 <strong>卧底</strong> 才能猜词；猜中平民的词即胜。</p>
+        </div>
+      </div>
+
+      <div class="reset-area">
+        <button id="resetBtn" class="btn reset">🔄 再来一局</button>
+        <button id="clearVoteBtn" class="btn muted">🧹 清空投票重新投</button>
+      </div>
+
+      <footer>👥 <strong>规则速览：</strong>3-8 人动态开局 · 每 5 人中 1 个卧底 · 投票需过半数才算出局 · 仅卧底可猜词</footer>
+    </div>
   </div>
 
   <!-- ========== 结果弹窗 ========== -->
@@ -442,7 +559,7 @@ footer {
       <div id="modalEmoji" class="emoji">🎉</div>
       <h3 id="modalTitle">平民胜利！</h3>
       <p id="modalDesc">你们成功揪出了间谍！</p>
-      <div class="reveal">
+      <div class="reveal" id="modalReveal">
         本局词语：<span class="word" id="modalWord">—</span><br/>
         间谍是：<strong id="modalSpy">玩家 ?</strong>
       </div>
@@ -474,62 +591,118 @@ footer {
   const db = firebase.database();
 
   // ============================================================
-  // 词库（24 个常见词, 满足"至少 12 个"要求）
+  // 常量与词库
   // ============================================================
+  const MIN_PLAYERS  = 3;
+  const MAX_PLAYERS  = 8;
   const WORDS = [
-    "苹果","香蕉","太阳","月亮","电脑","书本",
-    "雨伞","眼镜","钢琴","蛋糕","熊猫","火车",
-    "橙子","葡萄","西瓜","兔子","手机","钥匙",
-    "毛巾","钱包","台灯","足球","吉他","咖啡"
+    "苹果","香蕉","橙子","葡萄","西瓜","草莓",
+    "猫","狗","兔子","熊猫","老虎","狮子",
+    "手机","电脑","耳机","钥匙","钱包","眼镜",
+    "学校","医院","公园","图书馆","电影院","博物馆",
+    "钢琴","吉他","足球","篮球","羽毛球","乒乓球",
+    "饺子","火锅","烧烤","汉堡","寿司","披萨",
+    "太阳","月亮","星星","雨伞","蜡烛","枕头"
   ];
 
   // ============================================================
   // 全局状态
   // ============================================================
-  let currentRoomId  = null;   // 当前房间号
-  let myPlayerIndex  = null;   // 0 / 1 / 2
-  let roomData       = null;   // 从 DB 拉取的最新房间数据
+  let currentRoomId  = null;
+  let myPlayerIndex  = null;
+  let myName         = "";
+  let roomData       = null;
+  let dismissedResult= false;  // 本轮投票结果是否已被点掉（用于防止弹窗反复刷出）
 
   // ============================================================
   // DOM 引用
   // ============================================================
-  const $joinScreen    = document.getElementById("joinScreen");
-  const $gameScreen    = document.getElementById("gameScreen");
-  const $roomInput     = document.getElementById("roomInput");
-  const $joinBtn       = document.getElementById("joinBtn");
-  const $joinError     = document.getElementById("joinError");
-  const $roomDisplay   = document.getElementById("roomDisplay");
-  const $myPlayer      = document.getElementById("myPlayerDisplay");
-  const $cards         = document.getElementById("cards");
-  const $status        = document.getElementById("status");
-  const $voteBtns      = document.querySelectorAll("[data-vote]");
-  const $guessInput    = document.getElementById("guessInput");
-  const $guessBtn      = document.getElementById("guessBtn");
-  const $resetBtn      = document.getElementById("resetBtn");
-  const $leaveBtn      = document.getElementById("leaveBtn");
-  const $overlay       = document.getElementById("overlay");
-  const $modal         = document.getElementById("modal");
-  const $modalEmoji    = document.getElementById("modalEmoji");
-  const $modalTitle    = document.getElementById("modalTitle");
-  const $modalDesc     = document.getElementById("modalDesc");
-  const $modalWord     = document.getElementById("modalWord");
-  const $modalSpy      = document.getElementById("modalSpy");
-  const $modalResetBtn = document.getElementById("modalResetBtn");
+  const $joinScreen     = document.getElementById("joinScreen");
+  const $gameScreen     = document.getElementById("gameScreen");
+  const $nameInput      = document.getElementById("nameInput");
+  const $roomInput      = document.getElementById("roomInput");
+  const $joinBtn        = document.getElementById("joinBtn");
+  const $joinError      = document.getElementById("joinError");
+  const $roomDisplay    = document.getElementById("roomDisplay");
+  const $myPlayer       = document.getElementById("myPlayerDisplay");
+  const $countDisplay   = document.getElementById("countDisplay");
+  const $startBtn       = document.getElementById("startBtn");
+  const $startBtn2      = document.getElementById("startBtn2");
+  const $lobbySection   = document.getElementById("lobbySection");
+  const $lobbyList      = document.getElementById("lobbyList");
+  const $lobbyStatus    = document.getElementById("lobbyStatus");
+  const $playSection    = document.getElementById("playSection");
+  const $cards          = document.getElementById("cards");
+  const $status         = document.getElementById("status");
+  const $voteRow        = document.getElementById("voteRow");
+  const $voteMeta       = document.getElementById("voteMeta");
+  const $guessArea      = document.getElementById("guessArea");
+  const $resetBtn       = document.getElementById("resetBtn");
+  const $clearVoteBtn   = document.getElementById("clearVoteBtn");
+  const $leaveBtn       = document.getElementById("leaveBtn");
+  const $overlay        = document.getElementById("overlay");
+  const $modal          = document.getElementById("modal");
+  const $modalEmoji     = document.getElementById("modalEmoji");
+  const $modalTitle     = document.getElementById("modalTitle");
+  const $modalDesc      = document.getElementById("modalDesc");
+  const $modalWord      = document.getElementById("modalWord");
+  const $modalSpy       = document.getElementById("modalSpy");
+  const $modalResetBtn  = document.getElementById("modalResetBtn");
+
+  // ============================================================
+  // 工具函数
+  // ============================================================
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+  }
+  function pickWord() { return WORDS[Math.floor(Math.random() * WORDS.length)]; }
+  function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+  function activePlayersList(room) {
+    // 返回在场玩家的索引数组（按座位号升序）
+    const list = [];
+    (room.players || []).forEach((p, i) => { if (p && p.present) list.push(i); });
+    return list;
+  }
+  function playerName(room, i) {
+    const p = (room.players || [])[i];
+    return (p && p.name) ? p.name : `玩家 ${i + 1}`;
+  }
+  function spyCountByN(n) {
+    // ceil(n/5): 3→1, 4→1, 5→1, 6→2, ..., 10→2, 11→3
+    // 保证 ≥3 人也至少有 1 个卧底
+    return Math.max(1, Math.ceil(n / 5));
+  }
 
   // ============================================================
   // 加入房间
   // ============================================================
   async function joinRoom() {
-    const raw = $roomInput.value.trim();
+    const name = $nameInput.value.trim();
+    const raw  = $roomInput.value.trim();
     $joinError.textContent = "";
-    if (!raw) { $joinError.textContent = "请输入房间号"; return; }
+    if (!name) { $joinError.textContent = "请输入你的昵称"; return; }
+    if (name.length > 8) { $joinError.textContent = "昵称最多 8 个字"; return; }
+    if (!raw)   { $joinError.textContent = "请输入房间号"; return; }
     if (!/^\d{1,8}$/.test(raw)) { $joinError.textContent = "房间号只能为数字 (1-8 位)"; return; }
 
     $joinBtn.disabled = true;
     $joinBtn.textContent = "⏳ 连接中...";
 
     try {
-      await claimSlot(raw);
+      await claimSlot(raw, name);
+      // 成功后保存 + 进入
+      localStorage.setItem("uc_room", raw);
+      localStorage.setItem("uc_player", String(myPlayerIndex));
+      localStorage.setItem("uc_name", name);
+      enterGame();
     } catch (e) {
       $joinError.textContent = e.message || "网络错误，请重试";
       $joinBtn.disabled = false;
@@ -537,41 +710,61 @@ footer {
     }
   }
 
-  async function claimSlot(roomId) {
+  async function claimSlot(roomId, name) {
     const roomRef = db.ref(`rooms/${roomId}`);
     const snap = await roomRef.once("value");
     const data = snap.val();
-    let myIndex, updates;
 
-    if (!data) {
-      // 第一位玩家 → 创建房间并随机分配
-      myIndex = 0;
-      const word     = WORDS[Math.floor(Math.random() * WORDS.length)];
-      const spyIndex = Math.floor(Math.random() * 3);
-      updates = {
-        word,
-        spyIndex,
-        revealed: [false, false, false],
-        gameOver: false,
-        winner:   null,
-        players:  [true, false, false],
-        createdAt: firebase.database.ServerValue.TIMESTAMP
-      };
-    } else {
-      myIndex = data.players.findIndex(p => !p);
-      if (myIndex === -1) throw new Error("房间已满");
-      const players = [...data.players];
-      players[myIndex] = true;
-      updates = { players };
+    // 已存在房间 & 游戏进行中 → 不准加入
+    if (data && data.started && !data.gameOver) {
+      throw new Error("游戏进行中，无法加入");
     }
 
-    await roomRef.update(updates);
+    let players;
+    let myIndex;
 
-    currentRoomId = roomId;
+    if (!data) {
+      // 全新房间 → 创建者
+      myIndex = 0;
+      players = new Array(MAX_PLAYERS).fill(null).map((_, i) => ({
+        present: i === 0, name: i === 0 ? name : ""
+      }));
+      await roomRef.set({
+        players,
+        maxPlayers: MAX_PLAYERS,
+        started:   false,
+        gameOver:  false,
+        winner:    null,
+        word:      "",
+        spyIndices:    [],
+        civilianIndices:[],
+        flipped:   new Array(MAX_PLAYERS).fill(false),
+        votes:     {},
+        createdAt: firebase.database.ServerValue.TIMESTAMP
+      });
+    } else {
+      // 旧房间（可能 gameOver=true，可以重启）→ 找空位
+      players = [...(data.players || new Array(MAX_PLAYERS).fill({ present: false, name: "" }))];
+      // 补齐到 MAX_PLAYERS
+      while (players.length < MAX_PLAYERS) {
+        players.push({ present: false, name: "" });
+      }
+      myIndex = players.findIndex(p => !p || !p.present);
+      if (myIndex === -1) throw new Error("房间已满 (最多 8 人)");
+
+      players[myIndex] = { present: true, name };
+
+      // 游戏已结束的房间，新人加入时如果还有人在等 → 把 started 重置回 false
+      // （如果所有人都还在场则继续上局也行，但为简化，直接让房主重新开局）
+      await roomRef.update({
+        players,
+        started: false  // 强制回大厅
+      });
+    }
+
+    myName = name;
     myPlayerIndex = myIndex;
-    localStorage.setItem("uc_room", roomId);
-    localStorage.setItem("uc_player", String(myIndex));
-    enterGame();
+    currentRoomId = roomId;
   }
 
   // ============================================================
@@ -580,18 +773,27 @@ footer {
   async function tryRejoin() {
     const savedRoom   = localStorage.getItem("uc_room");
     const savedPlayer = localStorage.getItem("uc_player");
+    const savedName   = localStorage.getItem("uc_name") || "";
     if (!savedRoom || savedPlayer === null) return false;
 
     try {
       const snap = await db.ref(`rooms/${savedRoom}`).once("value");
       const data = snap.val();
-      if (!data || !data.players || !data.players[parseInt(savedPlayer)]) {
+      if (!data || !data.players || !data.players[parseInt(savedPlayer)] || !data.players[parseInt(savedPlayer)].present) {
+        // 位置已空, 清理
         localStorage.removeItem("uc_room");
         localStorage.removeItem("uc_player");
+        localStorage.removeItem("uc_name");
         return false;
+      }
+      // 如果名字为空（升级前存的旧 localStorage），用本地保存的名字补一下
+      const stored = data.players[parseInt(savedPlayer)];
+      if (savedName && !stored.name) {
+        await db.ref(`rooms/${savedRoom}/players/${parseInt(savedPlayer)}/name`).set(savedName);
       }
       currentRoomId = savedRoom;
       myPlayerIndex = parseInt(savedPlayer);
+      myName = stored.name || savedName || `玩家 ${myPlayerIndex + 1}`;
       enterGame();
       return true;
     } catch (e) {
@@ -603,7 +805,7 @@ footer {
     $joinScreen.classList.add("hidden");
     $gameScreen.classList.remove("hidden");
     $roomDisplay.textContent = currentRoomId;
-    $myPlayer.textContent    = myPlayerIndex + 1;
+    $myPlayer.textContent = myName || `玩家 ${myPlayerIndex + 1}`;
     listenRoom();
   }
 
@@ -621,83 +823,137 @@ footer {
   // 渲染
   // ============================================================
   function render() {
+    renderSections();
+    renderLobby();
     renderCards();
     renderStatus();
     renderControls();
     renderResult();
+    // 投票结算钩子: 数据稳定后, 检测"所有人都投了"则触发自动结算
+    if (roomData && roomData.started && !roomData.gameOver) {
+      const votes = roomData.votes || {};
+      const active = activePlayersList(roomData);
+      if (active.length >= MIN_PLAYERS && active.every(i => Object.prototype.hasOwnProperty.call(votes, i))) {
+        clearTimeout(window.__voteTimer);
+        window.__voteTimer = setTimeout(maybeFinalizeVote, 150);
+      }
+    }
   }
 
-  /**
-   * 渲染卡牌（隐私版）
-   * - 每张卡只有"自己翻开了"才能看到内容（游戏结束除外）
-   * - 其他人卡牌永远显示 🔒 ???（保护身份）
-   */
+  function renderSections() {
+    const started = !!roomData.started;
+    $lobbySection.classList.toggle("hidden",  started);
+    $playSection.classList.toggle("hidden", !started);
+  }
+
+  // 大厅: 槽位列表 + "开始游戏"按钮可用性
+  function renderLobby() {
+    const players = roomData.players || [];
+    const presentCount = players.filter(p => p && p.present).length;
+    const minNeeded = Math.max(0, MIN_PLAYERS - presentCount);
+    $countDisplay.textContent = `${presentCount}/${MIN_PLAYERS}+`;
+
+    $lobbyList.innerHTML = "";
+    for (let i = 0; i < MAX_PLAYERS; i++) {
+      const p = players[i];
+      const occupied = !!(p && p.present);
+      const isMine = (i === myPlayerIndex);
+      const tile = document.createElement("div");
+      tile.className = "lobby-tile" + (occupied ? (isMine ? " mine" : "") : " empty");
+      tile.innerHTML = occupied ? `🎴 ${escapeHtml(p.name || ("玩家 " + (i + 1)))}` : `+ 空位 ${i + 1}`;
+      $lobbyList.appendChild(tile);
+    }
+
+    const iAmFirstPlayer = (myPlayerIndex === 0);
+    const canStart = presentCount >= MIN_PLAYERS;
+
+    const hint = presentCount < MIN_PLAYERS
+      ? `⌛ 还需要 ${minNeeded} 人加入才能开始`
+      : `✅ 已达 ${presentCount} 人，可开始游戏`;
+    $lobbyStatus.textContent = hint;
+    $lobbyStatus.style.color = canStart ? "#86efac" : "#b6b6d8";
+
+    $startBtn.disabled  = !canStart;
+    $startBtn.textContent = canStart ? "🚀 开始游戏" : `⌛ 等待 ${minNeeded} 人`;
+    $startBtn.title = canStart ? "你是房主也可开局" : "至少 3 人才可开始";
+
+    $startBtn2.disabled = !canStart;
+    $startBtn2.textContent = canStart
+      ? `🚀 开始游戏 (${presentCount} 人在场)`
+      : `⌛ 还差 ${minNeeded} 人开始`;
+  }
+
+  // 渲染卡牌（隐私版）
   function renderCards() {
-    if (!roomData) return;
+    if (!roomData || !roomData.started) return;
+    const players = roomData.players || [];
+    const active = activePlayersList(roomData);
+    const N = active.length;
+
+    // 动态调整列数（CSS 类）
+    const desired = Math.min(8, Math.max(3, N));
+    $cards.className = "cards cols-" + desired;
+
     $cards.innerHTML = "";
+    const isGameOver = !!roomData.gameOver;
+    const flipped    = roomData.flipped || new Array(MAX_PLAYERS).fill(false);
+    const votes      = roomData.votes || {};
+    const spySet     = new Set(roomData.spyIndices || []);
+    const tally = computeTally(votes);
+    const eliminatedIdx = (isGameOver && tally && tally.eliminated != null) ? tally.eliminated : null;
 
-    const isGameOver = roomData.gameOver === true;
-    const revealed   = roomData.revealed || [false, false, false];
-
-    for (let i = 0; i < 3; i++) {
-      const isMine    = (i === myPlayerIndex);
-      const iFlipped  = !!revealed[i];
-      const isSpy     = (i === roomData.spyIndex);
-
-      // 是否能在我的屏幕上看到这张卡的内容？
-      // - 游戏结束 → 所有人都能看到所有身份
-      // - 否则 → 只有这张卡的主人自己翻开后才能看到
+    for (const i of active) {
+      const isMine   = (i === myPlayerIndex);
+      const iFlipped = !!flipped[i];
+      const isSpy    = spySet.has(i);
       const canSeeContent = isGameOver || (isMine && iFlipped);
+      const wasEliminated = (eliminatedIdx === i);
 
       const card = document.createElement("div");
       card.className = "card" +
                        (canSeeContent ? " flipped" : "") +
                        (isMine ? " mine" : "") +
-                       // 只在自己的卡牌且未翻开时, 才允许点击
                        ((isMine && !isGameOver && !iFlipped) ? " clickable" : "");
       card.dataset.idx = i;
+      const showVoteBadge = (tally && tally.counts[i] > 0) && !isGameOver;
+      const voteCount = tally ? (tally.counts[i] || 0) : 0;
 
-      // 正面内容
       let frontCls, frontInner;
       if (canSeeContent) {
-        frontCls = isSpy ? "spy" : "civilian";
+        frontCls = (wasEliminated ? "eliminated " : "") + (isSpy ? "spy" : "civilian");
         frontInner = isSpy
           ? `<div class="spy-icon">🕵️</div>
              <div class="role-tag">间谍</div>
-             <div class="spy-text">空纸条</div>`
+             <div class="spy-text">空纸条</div>
+             ${wasEliminated ? `<div class="eliminated-tag">已被票出</div>` : ""}`
           : `<div class="role-tag">平民</div>
-             <div class="word">${escapeHtml(roomData.word)}</div>`;
+             <div class="word">${escapeHtml(roomData.word)}</div>
+             ${wasEliminated ? `<div class="eliminated-tag">已被票出</div>` : ""}`;
       } else {
-        // 隐私状态：仅显示 🔒 + ???，不暴露身份
         frontCls = "locked";
         frontInner = `<div class="role-tag">🔒</div>
                       <div class="word">???</div>`;
       }
 
-      // 背面提示
       let hint;
-      if (isGameOver) {
-        hint = canSeeContent ? "" : "已隐藏";
-      } else if (isMine) {
-        hint = iFlipped ? "已查阅 ✓" : "点击翻开";
-      } else {
-        hint = "私密";
-      }
+      if (isGameOver)        hint = "已结束";
+      else if (isMine)       hint = iFlipped ? "已查阅 ✓" : "点击翻开";
+      else                   hint = "私密";
 
       card.innerHTML = `
         <div class="card-inner">
           <div class="card-face card-back">
             <div class="emoji">🎴</div>
-            <div class="label">玩家 ${i + 1}${isMine ? " (你)" : ""}</div>
+            <div class="label">${escapeHtml(playerName(roomData, i))}${isMine ? " (你)" : ""}</div>
             <div class="hint">${hint}</div>
           </div>
           <div class="card-face card-front ${frontCls}">
             ${frontInner}
           </div>
         </div>
+        ${showVoteBadge ? `<div class="vote-badge" title="得票数">${voteCount}</div>` : ""}
       `;
 
-      // 只让自己能点击自己的卡牌（且未翻开、未结束）
       if (isMine && !isGameOver && !iFlipped) {
         card.addEventListener("click", () => onCardClick(i));
       }
@@ -707,13 +963,7 @@ footer {
 
   function renderStatus() {
     if (!roomData) return;
-    const playersCount = (roomData.players || []).filter(p => p).length;
-
-    if (playersCount < 3 && !roomData.gameOver) {
-      $status.textContent = `⏳ 等待玩家加入…(${playersCount}/3)`;
-      $status.style.color = "#b6b6d8";
-      return;
-    }
+    if (!roomData.started) return; // 大厅状态由 renderLobby 处理
 
     if (roomData.gameOver) {
       const cw = roomData.winner === "civilian";
@@ -722,41 +972,214 @@ footer {
       return;
     }
 
-    // 三人到齐, 游戏进行中
-    const myRevealed = (roomData.revealed || [])[myPlayerIndex];
-    if (!myRevealed) {
-      $status.textContent = "👆 请点击自己的卡牌查看身份";
+    const active = activePlayersList(roomData);
+    const N = active.length;
+    const flippedAll = active.every(i => (roomData.flipped || [])[i]);
+    const votes = roomData.votes || {};
+    const votedCount = active.filter(i => Object.prototype.hasOwnProperty.call(votes, i)).length;
+
+    if (!flippedAll) {
+      $status.textContent = `👆 请所有玩家点击自己的卡牌查看身份 (${active.filter(i => (roomData.flipped || [])[i]).length}/${N})`;
+      $status.style.color = "#b6b6d8";
+    } else if (votedCount < N) {
+      $status.textContent = `🗳️ 投票进行中 (${votedCount}/${N}) · 得票数 > ${(N / 2).toFixed(1)} 才算出局`;
+      $status.style.color = "#b6b6d8";
     } else {
-      $status.textContent = "✅ 你已查看身份, 讨论或行动吧";
+      $status.textContent = "📊 投票完成，等待结算中…";
+      $status.style.color = "#b6b6d8";
     }
-    $status.style.color = "#b6b6d8";
   }
 
   function renderControls() {
-    if (!roomData) return;
-    const allIn = (roomData.players || []).filter(p => p).length === 3;
-    const canAct = !roomData.gameOver && allIn;
+    if (!roomData || !roomData.started) return;
+    const active = activePlayersList(roomData);
+    const N = active.length;
+    const isGameOver = !!roomData.gameOver;
 
-    $voteBtns.forEach(b => b.disabled = !canAct);
-    $guessBtn.disabled  = !canAct;
-    $guessInput.disabled = !canAct;
-    $resetBtn.disabled  = false;
-  }
-
-  function renderResult() {
-    if (!roomData || !roomData.gameOver) {
-      $overlay.classList.add("hidden");
+    if (isGameOver) {
+      // 游戏结束，所有投票/猜词按钮禁用
+      $voteRow.querySelectorAll(".btn").forEach(b => b.disabled = true);
+      disableGuess(true);
+      $resetBtn.disabled = false;
+      $clearVoteBtn.disabled = true;
       return;
     }
-    const civilianWin = roomData.winner === "civilian";
+
+    // 投票按钮：动态生成（按在场人数）
+    $voteRow.innerHTML = "";
+    const votes = roomData.votes || {};
+    const myVote = votes[myPlayerIndex];
+    const flippedAll = active.every(i => (roomData.flipped || [])[i]);
+    const canVote = flippedAll;
+
+    for (const i of active) {
+      if (i === myPlayerIndex) continue;  // 不能投自己
+      const btn = document.createElement("button");
+      btn.className = "btn muted" + (myVote === i ? " my-vote" : "");
+      btn.textContent = (myVote === i ? "✓ " : "") + "投 " + playerName(roomData, i);
+      btn.disabled = !canVote;
+      btn.addEventListener("click", () => doVote(i));
+      $voteRow.appendChild(btn);
+    }
+
+    const votedCount = active.filter(i => Object.prototype.hasOwnProperty.call(votes, i)).length;
+    $voteMeta.textContent = `· 已投 ${votedCount}/${N}`;
+
+    disableGuess(false);
+    $resetBtn.disabled = false;
+    // 当所有人都投完时显示清空投票按钮, 否则隐藏
+    $clearVoteBtn.disabled = !(votedCount >= N);
+  }
+
+  function disableGuess(forced) {
+    const isSpy = (roomData.spyIndices || []).includes(myPlayerIndex);
+    const isGameOver = !!(roomData && roomData.gameOver);
+    const existingInput = document.getElementById("guessInput");
+
+    if (isSpy && !isGameOver) {
+      // 如果已经存在 input, 只切换 disabled 状态 (避免打字中途失焦)
+      if (existingInput) {
+        const btn = document.getElementById("guessBtn");
+        if (btn) btn.disabled = !!forced;
+        existingInput.disabled = !!forced;
+        return;
+      }
+      $guessArea.innerHTML = `
+        <div class="guess-row">
+          <input type="text" id="guessInput" placeholder="间谍输入猜测的词语…" maxlength="20" autocomplete="off" />
+          <button id="guessBtn" class="btn orange">猜！</button>
+        </div>
+      `;
+      document.getElementById("guessBtn").addEventListener("click", spyGuess);
+      const inp = document.getElementById("guessInput");
+      inp.addEventListener("keydown", e => { if (e.key === "Enter") spyGuess(); });
+      if (forced) {
+        document.getElementById("guessBtn").disabled = true;
+        inp.disabled = true;
+      }
+    } else if (isGameOver) {
+      if (!existingInput) {
+        $guessArea.innerHTML = `<div class="guess-locked">— 游戏已结束 —</div>`;
+      }
+    } else {
+      // 平民：不可猜词
+      if (!existingInput) {
+        $guessArea.innerHTML = `
+          <div class="guess-locked">🔒 只有 <strong>卧底</strong> 才能猜词<br/><span style="font-size:11px;color:#6a6a8c;">平民请通过投票把卧底票出局</span></div>
+        `;
+      }
+    }
+  }
+
+  // 票数统计
+  function computeTally(votes) {
+    const counts = {};
+    if (votes) {
+      for (const target of Object.values(votes)) {
+        counts[target] = (counts[target] || 0) + 1;
+      }
+    }
+    return { counts };
+  }
+
+  // 投票结算判定: 得票最多者 > n/2 才出局
+  function judgeTally(tally, n) {
+    if (!tally) return null;
+    const entries = Object.entries(tally.counts).filter(([, c]) => c > 0);
+    if (entries.length === 0) return null;
+    entries.sort((a, b) => b[1] - a[1]);
+    const [topTarget, topCount] = entries[0];
+    const threshold = n / 2;
+    // 平票 (topCount === secondCount) 视为无果
+    const isTie = entries.length > 1 && entries[1][1] === topCount;
+    if (isTie) return { tied: true, threshold, topCount, topTarget: parseInt(topTarget, 10) };
+    if (topCount > threshold) return {
+      eliminated: parseInt(topTarget, 10),
+      threshold,
+      topCount,
+      tied: false
+    };
+    return { eliminated: null, threshold, topCount, topTarget: parseInt(topTarget, 10), tied: false };
+  }
+
+  // 渲染结果弹窗
+  function renderResult() {
+    if (!roomData) return;
+    if (!roomData.started) {
+      $overlay.classList.add("hidden");
+      dismissedResult = false;
+      return;
+    }
+
+    // 游戏刚结束 (gameOver=true) → 弹模态框
+    if (roomData.gameOver) {
+      // 从 roomData 直接拿结果 (由 startVote 写进去)
+      const winner = roomData.winner;  // "civilian" | "spy" | null
+      let eliminatedName = "";
+      let mode = roomData.endMode || "vote";
+      if (winner) {
+        const data = roomData.endData || {};
+        if (data.eliminated != null) {
+          eliminatedName = playerName(roomData, data.eliminated);
+        } else if (mode === "spyGuess") {
+          eliminatedName = "无（间谍盲猜失败）";
+        } else if (mode === "noEliminate") {
+          eliminatedName = "（无人得票过半）";
+        }
+        showResultModal(winner, mode, eliminatedName, data);
+      }
+    } else {
+      // 在游戏中: 实时结算（所有人都投了，但还没超过半数 → "投票无效，继续"）
+      // 由后台 watcher 在 everyoneVoted 时主动调 tryFinalizeVote，不再依赖状态变更弹窗
+      $overlay.classList.add("hidden");
+      dismissedResult = false;
+    }
+  }
+
+  function showResultModal(winner, mode, eliminatedName, data) {
+    const civilianWin = winner === "civilian";
     $modal.className = "modal " + (civilianWin ? "civilian-win" : "spy-win");
-    $modalEmoji.textContent = civilianWin ? "🎉" : "💀";
-    $modalTitle.textContent = civilianWin ? "平民胜利！" : "间谍胜利！";
-    $modalDesc.textContent  = civilianWin
-      ? "你们成功揪出了间谍，词保住了！"
-      : "很遗憾，平民投错了人，间谍成功存活。";
-    $modalWord.textContent  = roomData.word;
-    $modalSpy.textContent   = "玩家 " + (roomData.spyIndex + 1);
+
+    let title, desc, emoji;
+    if (mode === "spyGuess") {
+      // 间谍猜词决定胜负
+      if (winner === "spy") {
+        emoji = "💀"; title = "间谍胜利！";
+        desc = "卧底猜中了平民手里的词，绝地翻盘！";
+      } else {
+        emoji = "🎉"; title = "平民胜利！";
+        desc = "间谍猜错了词，身份暴露！";
+      }
+    } else if (mode === "noEliminate") {
+      // 投票无效, 但仍然结束了 — 默认判定间谍赢（无人被票出）
+      emoji = "💀"; title = "间谍胜利！";
+      desc = data && data.tied
+        ? "出现平票，没人被票出，间谍成功潜伏。"
+        : "没人得票过半，间谍成功潜伏。";
+    } else {
+      // 正常投票出局
+      emoji = civilianWin ? "🎉" : "💀";
+      title = civilianWin ? "平民胜利！" : "间谍胜利！";
+      const wasSpy = (roomData.spyIndices || []).includes(data.eliminated);
+      if (wasSpy) {
+        desc = `你们成功揪出了间谍 (${eliminatedName})，平民词保住了！`;
+      } else {
+        desc = `很遗憾，${eliminatedName} 是被冤票的平民，间谍隐藏在了你们当中。`;
+      }
+    }
+
+    $modalEmoji.textContent = emoji;
+    $modalTitle.textContent = title;
+    $modalDesc.textContent  = desc;
+
+    // 词语 + 卧底名字列表
+    const spyIndices = roomData.spyIndices || [];
+    const spyNames   = spyIndices.map(i => playerName(roomData, i)).join("、");
+    $modalReveal.innerHTML = `
+      本局词语：<span class="word">${escapeHtml(roomData.word)}</span><br/>
+      平民人数：${(roomData.players || []).filter(p => p && p.present).length - spyIndices.length} 人<br/>
+      卧底是：<strong class="spy-name">${escapeHtml(spyNames || "未知")}</strong>
+    `;
     $overlay.classList.remove("hidden");
   }
 
@@ -766,59 +1189,150 @@ footer {
 
   /** 翻牌：只能翻自己的牌 */
   async function onCardClick(idx) {
-    if (!roomData || roomData.gameOver) return;
-    if (idx !== myPlayerIndex) return;        // 只能翻自己
-    const revealed = [...(roomData.revealed || [false, false, false])];
-    if (revealed[idx]) return;
-    revealed[idx] = true;
-    await db.ref(`rooms/${currentRoomId}/revealed`).set(revealed);
+    if (!roomData || !roomData.started || roomData.gameOver) return;
+    if (idx !== myPlayerIndex) return;
+    const flipped = [...(roomData.flipped || new Array(MAX_PLAYERS).fill(false))];
+    if (flipped[idx]) return;
+    flipped[idx] = true;
+    await db.ref(`rooms/${currentRoomId}/flipped`).set(flipped);
   }
 
-  async function vote(target) {
-    if (!roomData || roomData.gameOver) return;
-    const civilianWin = (target === roomData.spyIndex);
-    await db.ref(`rooms/${currentRoomId}`).update({
-      gameOver: true,
-      winner:   civilianWin ? "civilian" : "spy"
-    });
+  /** 投票（含改票） */
+  async function doVote(target) {
+    if (!roomData || !roomData.started || roomData.gameOver) return;
+    const updates = {};
+    updates[`votes/${myPlayerIndex}`] = target;
+    await db.ref(`rooms/${currentRoomId}`).update(updates);
+    // 改票结束后, 检查是否所有人都投了
+    await maybeFinalizeVote();
   }
 
+  /** 清空所有票, 重新投 */
+  async function clearAllVotes() {
+    if (!currentRoomId) return;
+    if (!confirm("确认清空所有票，让所有人重新投一次？")) return;
+    await db.ref(`rooms/${currentRoomId}/votes`).remove();
+  }
+
+  /** 监听投票变化: 当所有人都投了, 触发结算 */
+  async function maybeFinalizeVote() {
+    if (!roomData || !roomData.started || roomData.gameOver) return;
+    const active = activePlayersList(roomData);
+    const N = active.length;
+    const votes = roomData.votes || {};
+    const votedCount = active.filter(i => Object.prototype.hasOwnProperty.call(votes, i)).length;
+    if (votedCount < N) return;
+    const flippedAll = active.every(i => (roomData.flipped || [])[i]);
+    if (!flippedAll) return;
+
+    const tally = computeTally(votes);
+    const verdict = judgeTally(tally, N);
+
+    if (verdict && verdict.eliminated != null) {
+      // 出局结算
+      const wasSpy = (roomData.spyIndices || []).includes(verdict.eliminated);
+      await db.ref(`rooms/${currentRoomId}`).update({
+        gameOver: true,
+        winner:   wasSpy ? "civilian" : "spy",
+        endMode:  "vote",
+        endData:  { eliminated: verdict.eliminated, threshold: verdict.threshold, topCount: verdict.topCount }
+      });
+    } else if (verdict && verdict.tied) {
+      // 平票: 自动清空票重新投（无需弹确认）
+      await db.ref(`rooms/${currentRoomId}/votes`).remove();
+      // 提示
+      alert("出现平票，请重新投票！");
+    } else {
+      // 没人得票过半: 直接判间谍胜
+      await db.ref(`rooms/${currentRoomId}`).update({
+        gameOver: true,
+        winner:   "spy",
+        endMode:  "noEliminate",
+        endData:  verdict || {}
+      });
+    }
+  }
+
+  /** 间谍猜词 */
   async function spyGuess() {
     if (!roomData || roomData.gameOver) return;
-    const guess = $guessInput.value.trim();
+    const isSpy = (roomData.spyIndices || []).includes(myPlayerIndex);
+    if (!isSpy) { alert("只有卧底才能猜词"); return; }
+    const inp = document.getElementById("guessInput");
+    if (!inp) return;
+    const guess = inp.value.trim();
     if (!guess) { alert("请先输入猜测的词语～"); return; }
-    const spyWin = (guess === roomData.word);
+    const isWin = (guess === roomData.word);
     await db.ref(`rooms/${currentRoomId}`).update({
       gameOver: true,
-      winner:   spyWin ? "spy" : "civilian"
+      winner:   isWin ? "spy" : "civilian",
+      endMode:  "spyGuess",
+      endData:  { guess }
     });
   }
 
-  async function resetGame() {
-    if (!currentRoomId) return;
-    const word     = WORDS[Math.floor(Math.random() * WORDS.length)];
-    const spyIndex = Math.floor(Math.random() * 3);
+  /** 开始游戏：分配角色 */
+  async function startGame() {
+    if (!currentRoomId || !roomData) return;
+    const active = activePlayersList(roomData);
+    const n = active.length;
+    if (n < MIN_PLAYERS) return;
+    const spyN = spyCountByN(n);
+    const shuffled = shuffle([...active]);
+    const spyIndices      = shuffled.slice(0, spyN);
+    const civilianIndices = shuffled.slice(spyN);
+    const word = pickWord();
     await db.ref(`rooms/${currentRoomId}`).update({
-      word, spyIndex,
-      revealed: [false, false, false],
-      gameOver: false,
-      winner:   null
-      // players 数组保留
+      started:       true,
+      gameOver:      false,
+      winner:        null,
+      endMode:       null,
+      endData:       null,
+      word,
+      spyIndices,
+      civilianIndices,
+      flipped:       new Array(MAX_PLAYERS).fill(false),
+      votes:         {}
     });
-    $guessInput.value = "";
+  }
+
+  /** 再来一局 */
+  async function resetGame() {
+    if (!currentRoomId || !roomData) return;
+    const active = activePlayersList(roomData);
+    if (active.length < MIN_PLAYERS) {
+      // 人不够, 退回大厅
+      await db.ref(`rooms/${currentRoomId}`).update({
+        started: false, gameOver: false, winner: null, votes: {}, flipped: new Array(MAX_PLAYERS).fill(false)
+      });
+      return;
+    }
+    const n = active.length;
+    const spyN = spyCountByN(n);
+    const shuffled = shuffle([...active]);
+    const spyIndices      = shuffled.slice(0, spyN);
+    const civilianIndices = shuffled.slice(spyN);
+    const word = pickWord();
+    await db.ref(`rooms/${currentRoomId}`).update({
+      started:       true,
+      gameOver:      false,
+      winner:        null,
+      endMode:       null,
+      endData:       null,
+      word,
+      spyIndices,
+      civilianIndices,
+      flipped:       new Array(MAX_PLAYERS).fill(false),
+      votes:         {}
+    });
+    const inp = document.getElementById("guessInput");
+    if (inp) inp.value = "";
     $overlay.classList.add("hidden");
   }
 
-  /**
-   * 退出房间
-   * - 释放自己的玩家槽位 (others 仍可继续游戏)
-   * - 如果所有人都走了, 直接删除整个房间, 避免 DB 堆积
-   * - 清空本地状态 (localStorage + 全局变量)
-   * - 切换回加入房间界面
-   */
+  /** 退出房间 */
   async function leaveRoom() {
     if (!currentRoomId || myPlayerIndex === null) {
-      // 已经在加入界面, 仅重置 UI
       $gameScreen.classList.add("hidden");
       $joinScreen.classList.remove("hidden");
       $roomInput.value = "";
@@ -827,33 +1341,33 @@ footer {
       return;
     }
 
-    // 1. 先解绑监听器, 避免处理自己的更新
     db.ref(`rooms/${currentRoomId}`).off("value");
 
-    // 2. 释放槽位 (失败也不影响退出流程)
     try {
-      const players = (roomData && roomData.players) ? [...roomData.players] : [false, false, false];
-      if (myPlayerIndex >= 0 && myPlayerIndex < 3) {
-        players[myPlayerIndex] = false;
-        if (players.every(p => !p)) {
-          // 最后一个走的玩家, 顺手删除房间, 避免 DB 堆积
-          await db.ref(`rooms/${currentRoomId}`).remove();
-        } else {
-          await db.ref(`rooms/${currentRoomId}/players`).set(players);
-        }
+      const players = [...(roomData.players || new Array(MAX_PLAYERS).fill({ present: false, name: "" }))];
+      while (players.length < MAX_PLAYERS) players.push({ present: false, name: "" });
+      if (myPlayerIndex >= 0 && myPlayerIndex < MAX_PLAYERS) {
+        players[myPlayerIndex] = { present: false, name: "" };
       }
-    } catch (e) {
-      // ignore network errors, continue with leaving
-    }
+      const stillPresent = players.some(p => p && p.present);
+      if (!stillPresent) {
+        await db.ref(`rooms/${currentRoomId}`).remove();
+      } else {
+        // 只更新自己位置
+        await db.ref(`rooms/${currentRoomId}/players/${myPlayerIndex}`).set({ present: false, name: "" });
+        // 如果游戏在进行中, 退出后大家继续 (数据保留); 但 endMode 不需特殊处理
+      }
+    } catch (e) { /* ignore */ }
 
-    // 3. 清空本地状态
     localStorage.removeItem("uc_room");
     localStorage.removeItem("uc_player");
+    localStorage.removeItem("uc_name");
     currentRoomId = null;
     myPlayerIndex = null;
+    myName = "";
     roomData = null;
+    dismissedResult = false;
 
-    // 4. 切换回加入房间界面
     $overlay.classList.add("hidden");
     $gameScreen.classList.add("hidden");
     $joinScreen.classList.remove("hidden");
@@ -863,35 +1377,24 @@ footer {
   }
 
   // ============================================================
-  // 工具函数
-  // ============================================================
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, c => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-    }[c]));
-  }
-
-  // ============================================================
   // 事件绑定
   // ============================================================
   $joinBtn.addEventListener("click", joinRoom);
   $roomInput.addEventListener("keydown", e => { if (e.key === "Enter") joinRoom(); });
-  $voteBtns.forEach(b => b.addEventListener("click", () => vote(parseInt(b.dataset.vote, 10))));
-  $guessBtn.addEventListener("click", spyGuess);
-  $guessInput.addEventListener("keydown", e => { if (e.key === "Enter") spyGuess(); });
+  $nameInput.addEventListener("keydown",  e => { if (e.key === "Enter") $roomInput.focus(); });
+  $startBtn.addEventListener("click", startGame);
+  $startBtn2.addEventListener("click", startGame);
   $resetBtn.addEventListener("click", resetGame);
+  $clearVoteBtn.addEventListener("click", clearAllVotes);
   $leaveBtn.addEventListener("click", () => {
     if (confirm("确定要退出当前房间吗？")) leaveRoom();
   });
 
-  // 弹窗内的"再来一局"按钮
   $modalResetBtn.addEventListener("click", resetGame);
 
-  // 点击弹窗背景关闭弹窗（但不重置游戏）
+  // 点空白关闭弹窗，但不重置游戏
   $overlay.addEventListener("click", (e) => {
-    if (e.target === $overlay) {
-      $overlay.classList.add("hidden");
-    }
+    if (e.target === $overlay) $overlay.classList.add("hidden");
   });
 
   // ============================================================
