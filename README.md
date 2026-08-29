@@ -1,16 +1,26 @@
-# 🕵️ 卧底风云 · 三人联机版
+# 🕵️ 卧底风云 · 多人联机版
 
-> 三人跨设备实时同步的卧底游戏，基于 Firebase Realtime Database。
+> **v3** — 3-8 人跨设备实时同步的卧底游戏，基于 Firebase Realtime Database。
 
-## 🎮 玩法
+## 🎯 玩法（v3 规则速览）
 
-1. 三人输入**相同的房间号**（如 `8888`）加入房间
-2. 第一个进入的玩家自动创建房间，随机分配词语和间谍
-3. 任意玩家点击任意卡牌 → 翻牌状态会**实时同步**给所有人
-4. 投票抓间谍 或 间谍盲猜词语 → 同步出胜负
-5. 点 **🔄 再来一局** 重置当前房间（保留玩家位置）
+- **3-8 人动态开局**：每人输入昵称 + 房间号加入，房主点「🚀 开始游戏」
+- **卧底数 = ceil(n/5)**：5 人 1 个卧底、8 人 2 个卧底… 至少 1 个
+- **翻牌隐私**：永远只有「自己」能翻自己的卡牌，他人卡牌对其他人都显示 🔒 ???
+- **累计投票**：每玩家 1 票，可改投，得票 **超过** N/2 的人被票出（卧底 → 平民胜；冤票平民 → 间谍胜）
+- **平票 / 没过半**：平票自动清空重投；都投完但没人过半 → 间谍胜
+- **仅卧底可猜词**：平民点猜词按钮被拒；卧底随时输入猜测平民的词 → 猜对 / 猜错即决胜负
+- **退出房间**：顶部 🚪 按钮释放槽位；所有人走完则删房间
 
-> ⚠️ 第 4 个人尝试加入同一房间号会被拒绝，提示"房间已满"。
+## 🎮 完整流程
+
+1. 任意数量（3-8）玩家输入**相同的房间号**（如 `8888`）加入房间
+2. 第一个进入的玩家成为"房主"，满 3 人后可点「🚀 开始游戏」
+3. 系统按人数随机分配词语 + 卧底，每玩家点开自己的卡牌查看身份
+4. 进入投票轮 — 点对应玩家按钮投票（每人 1 票，可改）
+5. 所有人都投完后自动结算（如有玩家中途不想点，结算仍按"全员投完"触发）
+6. 或卧底在「间谍猜词」面板输入猜测词 → 同步判定胜负
+7. 弹窗点「🔄 再来一局」可保留人数 + 昵称，重置词和卧底
 
 ---
 
@@ -25,7 +35,7 @@
 
 ### 2. 获取 Web 应用配置
 1. 项目首页点击 **「</>」**（Web 应用图标）→ 起个昵称 → 注册应用
-2. 复制 `firebaseConfig` 对象，类似：
+2. 复制 `firebaseConfig` 对象：
    ```javascript
    const firebaseConfig = {
      apiKey: "AIzaSy...",
@@ -38,25 +48,13 @@
    ```
 
 ### 3. 替换代码里的占位符
-打开 `index.html`，找到这段：
-```javascript
-const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",          // ← 替换
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
-  projectId: "YOUR_PROJECT",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  appId: "YOUR_APP_ID"
-};
-```
-把 `YOUR_API_KEY` / `YOUR_PROJECT` / `YOUR_APP_ID` 替换成你真实的值。
+打开 `index.html`，找到这段 `const firebaseConfig = { ... }`，把对应的字段替换成你真实的值。
 
 ### 4. 部署到 GitHub Pages
 ```bash
-# 新建一个仓库，比如 undercover-online
 git init
 git add index.html README.md
-git commit -m "init: undercover multiplayer"
+git commit -m "init: undercover multiplayer v3"
 git branch -M main
 git remote add origin https://github.com/<你的用户名>/undercover-online.git
 git push -u origin main
@@ -66,9 +64,9 @@ git push -u origin main
 访问地址：`https://<你的用户名>.github.io/undercover-online/`
 
 ### 5. 测试
-1. 用电脑打开你的 GitHub Pages 链接，输入房间号 `8888` → 加入
-2. 用手机（不同浏览器/无痕窗口）打开同一链接，输入相同房间号 → 加入
-3. 三人都到位后即可开始游戏 🎉
+1. 用电脑打开你的 GitHub Pages 链接，输入房间号 `8888` + 昵称 → 加入
+2. 用手机（不同浏览器/无痕窗口）打开同一链接，输入相同房间号 + 不同昵称 → 加入
+3. 满 3 人后点「🚀 开始游戏」即可开始 🎉
 
 ---
 
@@ -84,7 +82,7 @@ git push -u origin main
 }
 ```
 
-**生产环境建议**（防止被恶意清空）：
+**生产环境建议**：
 ```json
 {
   "rules": {
@@ -114,9 +112,10 @@ git push -u origin main
 - 🎴 3D 翻转卡牌 + 毛玻璃 + 发光特效
 - 📱 手机 / 电脑双端自适应
 - 🌌 深色渐变背景 + 紫蓝光斑装饰
-- 📚 24 个内置词库（食物 / 物品 / 动物 / 日常）
+- 📚 60+ 内置词库（食物 / 物品 / 动物 / 日常）
 - 🔄 实时多端同步（任意玩家操作，其余设备立即刷新）
-- 💾 刷新页面自动恢复房间（localStorage 记住玩家编号）
+- 💾 刷新页面自动恢复房间（localStorage 记住房间号 + 昵称 + 玩家编号）
+- 🚪 退出房间 + 自动清空
 
 ## 📄 License
 
